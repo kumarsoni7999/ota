@@ -31,6 +31,22 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Production (self‑hosted)
+
+Deployed behavior matches local only if the **runtime** and **environment** match what you use on your machine.
+
+1. **Run a production server** — `npm ci && npm run build` then `npm run start` (or the included `Dockerfile`). Do **not** run `npm run dev` in production (that enables webpack HMR and wrong tooling).
+
+2. **Set `AUTH_SECRET`** — Required in production (see `auth-secret.ts`). Use a long random string and **keep it stable** across deploys or every user is logged out and tokens become invalid.
+
+3. **HTTPS** — Session cookies use the `Secure` flag in production. The site must be served over **HTTPS** in the browser, or sign-in will not persist.
+
+4. **Persisted data** — Users, projects, and uploads live under `data/`, `uploads/`, and `storage/` relative to the app (or under `OTA_DATA_DIR` if set). On Docker or ephemeral hosts, **mount a volume** and set `OTA_DATA_DIR` to that path, or data resets when the container restarts (unlike local disk).
+
+5. **Optional `CORS_ORIGINS`** — If you call the API from another origin, list those origins (comma-separated). Wrong values break cross-origin API use.
+
+See `.env.example` for variable names. Local check: `npm run preview` runs a production build on your machine.
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

@@ -1,8 +1,9 @@
 import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { getDataRoot } from "@/server/runtime/data-root";
 
 export function dataDir(...segments: string[]) {
-  return path.join(process.cwd(), "data", ...segments);
+  return path.join(getDataRoot(), "data", ...segments);
 }
 
 export async function readAllJsonRecords<T>(relativeDir: string): Promise<T[]> {

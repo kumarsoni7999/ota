@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { BuildEnv, BuildPlatform } from "@/server/models/build.model";
+import { getDataRoot } from "@/server/runtime/data-root";
 
 /**
  * On-disk layout (example):
@@ -22,7 +23,7 @@ export const OTA_BUNDLE_FILENAME = "index.bundle";
 export const OTA_ASSETS_DIRNAME = "assets";
 
 export function storageRoot(): string {
-  return path.join(process.cwd(), "storage");
+  return path.join(getDataRoot(), "storage");
 }
 
 export function projectsStorageRoot(): string {

@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { StoredUpload } from "@/server/models/upload.model";
+import { getDataRoot } from "@/server/runtime/data-root";
 
-const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
+const UPLOAD_ROOT = path.join(getDataRoot(), "uploads");
 const FILES_DIR = path.join(UPLOAD_ROOT, "files");
 const META_DIR = path.join(UPLOAD_ROOT, "meta");
 

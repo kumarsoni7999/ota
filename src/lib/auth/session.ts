@@ -70,14 +70,25 @@ export function verifySessionToken(token: string): SessionPayload | null {
   }
 }
 
+function sessionCookieSecureSuffix(): string {
+  const explicit = process.env.AUTH_COOKIE_SECURE?.trim().toLowerCase();
+  if (explicit === "false" || explicit === "0") {
+    return "";
+  }
+  if (explicit === "true" || explicit === "1") {
+    return "; Secure";
+  }
+  return process.env.NODE_ENV === "production" ? "; Secure" : "";
+}
+
 export function buildSessionSetCookieHeader(token: string): string {
   const maxAge = 60 * 60 * 24 * 7;
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  const secure = sessionCookieSecureSuffix();
   return `${SESSION_COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
 }
 
 export function buildSessionClearCookieHeader(): string {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  const secure = sessionCookieSecureSuffix();
   return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
