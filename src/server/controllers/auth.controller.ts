@@ -32,6 +32,23 @@ function appendSetCookie(response: Response, cookie: string) {
   response.headers.append("Set-Cookie", cookie);
 }
 
+function isAuthSecretMisconfigured(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("AUTH_SECRET");
+}
+
+function isStorageSystemError(err: unknown): boolean {
+  if (!err || typeof err !== "object") {
+    return false;
+  }
+  const code = (err as NodeJS.ErrnoException).code;
+  return (
+    code === "EACCES" ||
+    code === "EPERM" ||
+    code === "ENOENT" ||
+    code === "EROFS"
+  );
+}
+
 async function userWithPersistedClientId(user: User): Promise<User> {
   if (isValidSessionClientId(user.clientId)) {
     return user;
@@ -215,6 +232,7 @@ export const authController = {
       appendSetCookie(res, buildSessionSetCookieHeader(token));
       return res;
     } catch (err) {
+      console.error("[auth/register]", err);
       if (err instanceof Error) {
         if (err.message === "EMAIL_IN_USE") {
           return apiFailure(
@@ -238,6 +256,28 @@ export const authController = {
             { status: 409 },
           );
         }
+      }
+      if (isAuthSecretMisconfigured(err)) {
+        return apiFailure(
+          {
+            code: "SERVER_MISCONFIGURED",
+            message:
+              "Server is missing AUTH_SECRET. Set a stable secret (min 16 characters) in the environment.",
+          },
+          meta,
+          { status: 503 },
+        );
+      }
+      if (isStorageSystemError(err)) {
+        return apiFailure(
+          {
+            code: "STORAGE_UNAVAILABLE",
+            message:
+              "Could not save account data. Check disk permissions and OTA_DATA_DIR (or data/ directory).",
+          },
+          meta,
+          { status: 503 },
+        );
       }
       return apiFailure(
         { code: "REGISTER_FAILED", message: "Could not create account" },
@@ -334,15 +374,46 @@ export const authController = {
 
     await clearLoginThrottle(loginTrim);
 
-    const withCid = await userWithPersistedClientId(user);
-    const token = createSessionToken({
-      userId: withCid.id,
-      role: withCid.role,
-      clientId: withCid.clientId,
-    });
-    const res = apiSuccess({ user: toUserPublic(withCid) }, meta);
-    appendSetCookie(res, buildSessionSetCookieHeader(token));
-    return res;
+    try {
+      const withCid = await userWithPersistedClientId(user);
+      const token = createSessionToken({
+        userId: withCid.id,
+        role: withCid.role,
+        clientId: withCid.clientId,
+      });
+      const res = apiSuccess({ user: toUserPublic(withCid) }, meta);
+      appendSetCookie(res, buildSessionSetCookieHeader(token));
+      return res;
+    } catch (err) {
+      console.error("[auth/login]", err);
+      if (isAuthSecretMisconfigured(err)) {
+        return apiFailure(
+          {
+            code: "SERVER_MISCONFIGURED",
+            message:
+              "Server is missing AUTH_SECRET. Set a stable secret (min 16 characters) in the environment.",
+          },
+          meta,
+          { status: 503 },
+        );
+      }
+      if (isStorageSystemError(err)) {
+        return apiFailure(
+          {
+            code: "STORAGE_UNAVAILABLE",
+            message:
+              "Could not save session data. Check disk permissions and OTA_DATA_DIR (or data/ directory).",
+          },
+          meta,
+          { status: 503 },
+        );
+      }
+      return apiFailure(
+        { code: "LOGIN_FAILED", message: "Could not complete sign-in" },
+        meta,
+        { status: 500 },
+      );
+    }
   },
 
   async logout(_request: Request) {
