@@ -30,6 +30,7 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: "3015",
+        AUTH_SECRET: "y9F3kLx8Qw2Zp7MnR5tVbC4sD1eH6JkUuA0XcWmN9GqTzYfP3rL8oI2aS7dE5BvH",
       },
     },
   ],
