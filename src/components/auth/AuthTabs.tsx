@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { LoginForm } from "@/components/auth/LoginForm";
 import { RegisterForm } from "@/components/auth/RegisterForm";
 
@@ -11,8 +13,29 @@ type Props = {
   initialTab: Tab;
 };
 
+const tabBaseClass =
+  "inline-flex flex-1 items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 dark:focus-visible:ring-offset-zinc-800";
+
 export function AuthTabs({ initialTab }: Props) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>(initialTab);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
+
+  function goToTab(
+    e: React.MouseEvent<HTMLAnchorElement>,
+    next: Tab,
+    href: string,
+  ) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    e.preventDefault();
+    setTab(next);
+    router.replace(href, { scroll: false });
+  }
 
   return (
     <div className="flex w-full max-w-md flex-col gap-6">
@@ -35,32 +58,38 @@ export function AuthTabs({ initialTab }: Props) {
         aria-label="Account"
         className="flex rounded-full border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-700 dark:bg-zinc-800"
       >
-        <button
-          type="button"
+        <Link
+          href="/"
+          replace
+          scroll={false}
+          prefetch={false}
           role="tab"
           aria-selected={tab === "signin"}
-          className={`flex-1 rounded-full px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 dark:focus-visible:ring-offset-zinc-800 ${
+          className={`${tabBaseClass} ${
             tab === "signin"
               ? "brand-cta shadow-sm"
               : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
           }`}
-          onClick={() => setTab("signin")}
+          onClick={(e) => goToTab(e, "signin", "/")}
         >
           Sign in
-        </button>
-        <button
-          type="button"
+        </Link>
+        <Link
+          href="/?tab=register"
+          replace
+          scroll={false}
+          prefetch={false}
           role="tab"
           aria-selected={tab === "register"}
-          className={`flex-1 rounded-full px-4 py-2.5 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-100 dark:focus-visible:ring-offset-zinc-800 ${
+          className={`${tabBaseClass} ${
             tab === "register"
               ? "brand-cta shadow-sm"
               : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
           }`}
-          onClick={() => setTab("register")}
+          onClick={(e) => goToTab(e, "register", "/?tab=register")}
         >
           Register
-        </button>
+        </Link>
       </div>
 
       {tab === "signin" ? <LoginForm /> : <RegisterForm />}
