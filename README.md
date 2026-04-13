@@ -35,7 +35,7 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 Deployed behavior matches local only if the **runtime** and **environment** match what you use on your machine.
 
-1. **Run a production server** — `npm ci && npm run build` then `npm run start` (or the included `Dockerfile`). Do **not** run `npm run dev` in production (that enables webpack HMR and wrong tooling).
+1. **Run a production server** — `npm ci && npm run build` then `npm run start` (or the included `Dockerfile`). Do **not** run `npm run dev` in production (that enables webpack HMR and wrong tooling). With **PM2**, use `ecosystem.config.cjs` (`pm2 start ecosystem.config.cjs`) — it runs `next start` on port **3015**, not `npm run dev`.
 
 2. **Set `AUTH_SECRET`** — Required in production (see `auth-secret.ts`). Use a long random string and **keep it stable** across deploys or every user is logged out and tokens become invalid.
 
