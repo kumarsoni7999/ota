@@ -157,6 +157,30 @@ function parseEnvValue(form: FormData): BuildEnv {
   return parseEnv(requireString(form, "env"));
 }
 
+async function nextBuildNumberForSlot(input: {
+  projectId: string;
+  env: BuildEnv;
+  platform: BuildPlatform;
+  version: string;
+}): Promise<number> {
+  const rows = await otaUpdateService.listAll();
+  let max = 0;
+  for (const u of rows) {
+    if (
+      u.projectId === input.projectId &&
+      u.env === input.env &&
+      u.platform === input.platform &&
+      u.version === input.version
+    ) {
+      const n = typeof u.buildNumber === "number" ? u.buildNumber : 0;
+      if (n > max) {
+        max = n;
+      }
+    }
+  }
+  return max + 1;
+}
+
 export const otaUploadService = {
   async saveFromMultipart(params: {
     project: Project;
@@ -191,29 +215,18 @@ export const otaUploadService = {
       );
     }
 
-    const existing = await otaUpdateService.findByReleaseSlot({
+    const nextBuildNumber = await nextBuildNumberForSlot({
       projectId: project.id,
       env,
       platform,
       version,
     });
-
-    const buildNumber = parseBuildNumber(form, existing?.buildNumber ?? 1);
+    const buildNumber = parseBuildNumber(form, nextBuildNumber);
 
     const now = new Date().toISOString();
-    const id = existing?.id ?? randomUUID();
-    const versionDir = otaVersionDir(project.projectKey, platform, env, version);
-    await rm(versionDir, { recursive: true, force: true });
-    await mkdir(versionDir, { recursive: true });
+    const id = randomUUID();
 
-    const bundleAbs = otaBundleAbsolutePath(project.projectKey, platform, env, version);
-    await writeFile(bundleAbs, Buffer.from(await bundle.arrayBuffer()));
-    const assetsDir = otaAssetsAbsoluteDir(project.projectKey, platform, env, version);
-    await writeAssets(assetsDir, assets);
-
-    const metadata: OtaUpdateMetadata = {
-      ...(existing?.metadata ?? {}),
-    };
+    const metadata: OtaUpdateMetadata = {};
     if (mandatory !== undefined) {
       metadata.mandatory = mandatory;
     }
@@ -227,38 +240,60 @@ export const otaUploadService = {
       metadata.releaseNotes = releaseNotes;
     }
 
-    const next: OtaUpdate = existing
-      ? {
-          ...existing,
-          env,
-          platform,
-          version,
-          buildNumber,
-          bundlePath: otaBundleStorageRef(project.projectKey, platform, env, version),
-          assetsPath: otaAssetsStorageRef(project.projectKey, platform, env, version),
-          metadata,
-          active: true,
-          updatedBy: userId,
-          updatedAt: now,
-        }
-      : {
-          id,
-          projectId: project.id,
-          env,
-          platform,
-          version,
-          buildNumber,
-          bundlePath: otaBundleStorageRef(project.projectKey, platform, env, version),
-          assetsPath: otaAssetsStorageRef(project.projectKey, platform, env, version),
-          metadata,
-          createdBy: userId,
-          updatedBy: userId,
-          createdAt: now,
-          updatedAt: now,
-          active: true,
-        };
+    // Keep each publish in isolated storage so previous OTA entries remain intact.
+    const storageVersion = `${version}__b${buildNumber}`;
+    const uploadingEntry: OtaUpdate = {
+      id,
+      projectId: project.id,
+      env,
+      platform,
+      version,
+      buildNumber,
+      bundlePath: otaBundleStorageRef(project.projectKey, platform, env, storageVersion),
+      assetsPath: otaAssetsStorageRef(project.projectKey, platform, env, storageVersion),
+      metadata,
+      createdBy: userId,
+      updatedBy: userId,
+      createdAt: now,
+      updatedAt: now,
+      active: false,
+      uploadState: "UPLOADING",
+      uploadError: undefined,
+    };
 
-    await otaUpdateService.save(next);
-    return { update: next, created: !existing };
+    await otaUpdateService.save(uploadingEntry);
+
+    try {
+      const versionDir = otaVersionDir(project.projectKey, platform, env, storageVersion);
+      await rm(versionDir, { recursive: true, force: true });
+      await mkdir(versionDir, { recursive: true });
+
+      const bundleAbs = otaBundleAbsolutePath(project.projectKey, platform, env, storageVersion);
+      await writeFile(bundleAbs, Buffer.from(await bundle.arrayBuffer()));
+      const assetsDir = otaAssetsAbsoluteDir(project.projectKey, platform, env, storageVersion);
+      await writeAssets(assetsDir, assets);
+
+      const next: OtaUpdate = {
+        ...uploadingEntry,
+        active: true,
+        updatedBy: userId,
+        updatedAt: new Date().toISOString(),
+        uploadState: "SUCCESS",
+        uploadError: undefined,
+      };
+      await otaUpdateService.save(next);
+      return { update: next, created: true };
+    } catch (err) {
+      const failed: OtaUpdate = {
+        ...uploadingEntry,
+        active: false,
+        updatedBy: userId,
+        updatedAt: new Date().toISOString(),
+        uploadState: "FAILED",
+        uploadError: err instanceof Error ? err.message : String(err),
+      };
+      await otaUpdateService.save(failed);
+      throw err;
+    }
   },
 };

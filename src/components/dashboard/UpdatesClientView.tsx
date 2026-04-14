@@ -26,6 +26,16 @@ type Props = {
   listMeta: UpdatesListMeta;
 };
 
+function uploadStatusLabel(u: OtaUpdate): string {
+  if (u.uploadState === "UPLOADING") {
+    return "Uploading...";
+  }
+  if (u.uploadState === "FAILED") {
+    return "Failed";
+  }
+  return "Success";
+}
+
 export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
   const {
     pathname,
@@ -143,7 +153,7 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[13%] px-4 py-3">
+                    <th className="w-[12%] px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -153,7 +163,7 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[7%] px-4 py-3">
+                    <th className="w-[6%] px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -162,6 +172,9 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeSort={sort}
                         activeOrder={order}
                       />
+                    </th>
+                    <th className="w-[11%] px-4 py-3 font-semibold tracking-wide">
+                      Upload
                     </th>
                   </tr>
                 </thead>
@@ -188,6 +201,18 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         {new Date(u.updatedAt).toLocaleString()}
                       </td>
                       <td>{u.active ? "Yes" : "No"}</td>
+                      <td
+                        className={
+                          u.uploadState === "FAILED"
+                            ? "text-rose-600 dark:text-rose-400"
+                            : u.uploadState === "UPLOADING"
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-emerald-700 dark:text-emerald-400"
+                        }
+                        title={u.uploadError ?? ""}
+                      >
+                        {uploadStatusLabel(u)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

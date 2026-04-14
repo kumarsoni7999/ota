@@ -8,6 +8,8 @@ export type OtaUpdateMetadata = {
   releaseNotes?: string;
 };
 
+export type OtaUploadState = "UPLOADING" | "SUCCESS" | "FAILED";
+
 export type OtaUpdate = {
   id: string;
   projectId: string;
@@ -26,4 +28,6 @@ export type OtaUpdate = {
   createdAt: ISODateString;
   updatedAt: ISODateString;
   active: boolean;
+  uploadState?: OtaUploadState;
+  uploadError?: string;
 };
