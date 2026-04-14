@@ -64,6 +64,7 @@ export const buildDownloadController = {
       const absPath = fromStorageRelative(build.filePath);
       const file = await readFile(absPath);
       const fileName = path.basename(build.filePath);
+      await buildService.incrementDownloadCountById(build.id);
       return new Response(file, {
         status: 200,
         headers: {
@@ -78,6 +79,35 @@ export const buildDownloadController = {
         meta,
         { status: 404 },
       );
+    }
+  },
+
+  async getPublic(buildId: string) {
+    const id = buildId.trim();
+    if (!BUILD_ID_RE.test(id)) {
+      return new Response("Invalid build id", { status: 400 });
+    }
+
+    const build = await buildService.findById(id);
+    if (!build || build.uploadStatus !== "success" || build.active === false) {
+      return new Response("Build not found", { status: 404 });
+    }
+
+    try {
+      const absPath = fromStorageRelative(build.filePath);
+      const file = await readFile(absPath);
+      const fileName = path.basename(build.filePath);
+      await buildService.incrementDownloadCountById(build.id);
+      return new Response(file, {
+        status: 200,
+        headers: {
+          "Content-Type": contentTypeForExt(path.extname(fileName)),
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+          "Cache-Control": "public, max-age=300",
+        },
+      });
+    } catch {
+      return new Response("Build file not found", { status: 404 });
     }
   },
 };

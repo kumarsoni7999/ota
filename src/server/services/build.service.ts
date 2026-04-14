@@ -26,6 +26,7 @@ export function normalizeBuildRow(raw: Build): Build {
     uploadReceivedBytes:
       raw.uploadReceivedBytes ??
       (uploadStatus === "pending" ? 0 : undefined),
+    downloadCount: raw.downloadCount ?? 0,
   };
 }
 
@@ -79,6 +80,20 @@ export const buildService = {
 
   async save(build: Build): Promise<void> {
     await writeJsonRecord("builds", build.id, build);
+  },
+
+  async incrementDownloadCountById(id: string): Promise<Build | null> {
+    const row = await this.findById(id);
+    if (!row) {
+      return null;
+    }
+    const next: Build = {
+      ...row,
+      downloadCount: (row.downloadCount ?? 0) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.save(next);
+    return next;
   },
 
   async deletePermanently(params: {

@@ -47,6 +47,20 @@ export const otaUpdateService = {
     await writeJsonRecord("ota-updates", update.id, update);
   },
 
+  async incrementDownloadCountById(id: string): Promise<OtaUpdate | null> {
+    const row = await this.findById(id);
+    if (!row) {
+      return null;
+    }
+    const next: OtaUpdate = {
+      ...row,
+      downloadCount: (row.downloadCount ?? 0) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.save(next);
+    return next;
+  },
+
   /** Latest active OTA row for a project + platform + channel (env). */
   async findLatestActive(input: {
     projectId: string;

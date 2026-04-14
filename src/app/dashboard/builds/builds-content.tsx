@@ -12,6 +12,7 @@ import { requireDashboardProfileUser } from "@/lib/auth/dashboard-session";
 import { buildService } from "@/server/services/build.service";
 import { projectService } from "@/server/services/project.service";
 import type { BuildPlatform, BuildUploadStatus } from "@/server/models/build.model";
+import { storageSizeService } from "@/server/services/storage-size.service";
 
 function isBuildPlatform(v: string): v is BuildPlatform {
   return v === "android" || v === "ios";
@@ -63,6 +64,12 @@ export async function DashboardBuildsContent({
     page: listQuery.page,
     pageSize: listQuery.pageSize,
   });
+  const rowsWithSize = await Promise.all(
+    pageData.items.map(async (b) => ({
+      ...b,
+      fileSizeBytes: await storageSizeService.fileSizeFromStorageRef(b.filePath),
+    })),
+  );
 
   const filteredEmpty =
     pageData.totalItems === 0 &&
@@ -94,7 +101,7 @@ export async function DashboardBuildsContent({
 
   return (
     <BuildsClientView
-      rows={pageData.items}
+      rows={rowsWithSize}
       projectNames={projectNames}
       projectOptions={projectOptions}
       listMeta={{

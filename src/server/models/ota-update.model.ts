@@ -30,4 +30,5 @@ export type OtaUpdate = {
   active: boolean;
   uploadState?: OtaUploadState;
   uploadError?: string;
+  downloadCount?: number;
 };

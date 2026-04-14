@@ -36,7 +36,7 @@ export type BuildsListMeta = {
 };
 
 type Props = {
-  rows: Build[];
+  rows: Array<Build & { fileSizeBytes?: number }>;
   projectNames: Record<string, string>;
   projectOptions: ProjectOption[];
   listMeta: BuildsListMeta;
@@ -170,6 +170,8 @@ export function BuildsClientView({
     text: string;
   } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Build | null>(null);
+  const [shareBuild, setShareBuild] = useState<Build | null>(null);
+  const [copied, setCopied] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -201,6 +203,27 @@ export function BuildsClientView({
     } finally {
       setDeleteLoading(false);
       setConfirmDelete(null);
+    }
+  }
+
+  const shareLink =
+    shareBuild && typeof window !== "undefined"
+      ? `${window.location.origin}/public/builds/${shareBuild.id}`
+      : "";
+  const qrSrc = shareLink
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(shareLink)}`
+    : "";
+
+  async function copyShareLink() {
+    if (!shareLink) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setToast({ kind: "error", text: "Could not copy link." });
     }
   }
 
@@ -250,20 +273,10 @@ export function BuildsClientView({
         <>
           <div className="mt-6 w-full overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-0 table-fixed text-left text-sm">
+              <table className="w-full min-w-[1220px] table-auto text-left text-sm">
                 <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-600 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
                   <tr>
-                    <th className="w-[10%] px-4 py-3">
-                      <DashboardSortHeaderLink
-                        pathname={pathname}
-                        queryString={qs}
-                        column="version"
-                        label="Version"
-                        activeSort={sort}
-                        activeOrder={order}
-                      />
-                    </th>
-                    <th className="w-[16%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -273,47 +286,18 @@ export function BuildsClientView({
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[8%] px-4 py-3">
+                    <th className="px-4 py-3 font-semibold tracking-wide">Downloads</th>
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
-                        column="env"
-                        label="Env"
+                        column="version"
+                        label="Version"
                         activeSort={sort}
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[10%] px-4 py-3">
-                      <DashboardSortHeaderLink
-                        pathname={pathname}
-                        queryString={qs}
-                        column="platform"
-                        label="Platform"
-                        activeSort={sort}
-                        activeOrder={order}
-                      />
-                    </th>
-                    <th className="w-[8%] px-4 py-3">
-                      <DashboardSortHeaderLink
-                        pathname={pathname}
-                        queryString={qs}
-                        column="type"
-                        label="Type"
-                        activeSort={sort}
-                        activeOrder={order}
-                      />
-                    </th>
-                    <th className="w-[10%] px-4 py-3">
-                      <DashboardSortHeaderLink
-                        pathname={pathname}
-                        queryString={qs}
-                        column="uploadStatus"
-                        label="Status"
-                        activeSort={sort}
-                        activeOrder={order}
-                      />
-                    </th>
-                    <th className="w-[6%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -323,7 +307,47 @@ export function BuildsClientView({
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[14%] px-4 py-3">
+                    <th className="px-4 py-3">
+                      <DashboardSortHeaderLink
+                        pathname={pathname}
+                        queryString={qs}
+                        column="env"
+                        label="Env"
+                        activeSort={sort}
+                        activeOrder={order}
+                      />
+                    </th>
+                    <th className="px-4 py-3">
+                      <DashboardSortHeaderLink
+                        pathname={pathname}
+                        queryString={qs}
+                        column="type"
+                        label="Type"
+                        activeSort={sort}
+                        activeOrder={order}
+                      />
+                    </th>
+                    <th className="px-4 py-3">
+                      <DashboardSortHeaderLink
+                        pathname={pathname}
+                        queryString={qs}
+                        column="platform"
+                        label="Platform"
+                        activeSort={sort}
+                        activeOrder={order}
+                      />
+                    </th>
+                    <th className="px-4 py-3">
+                      <DashboardSortHeaderLink
+                        pathname={pathname}
+                        queryString={qs}
+                        column="uploadStatus"
+                        label="Status"
+                        activeSort={sort}
+                        activeOrder={order}
+                      />
+                    </th>
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -333,7 +357,7 @@ export function BuildsClientView({
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[14%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -343,7 +367,7 @@ export function BuildsClientView({
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[10%] px-4 py-3">Actions</th>
+                    <th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -352,15 +376,15 @@ export function BuildsClientView({
                       key={b.id}
                       className="text-zinc-800 dark:text-zinc-200 [&>td]:px-4 [&>td]:py-3"
                     >
-                      <td className="font-medium text-zinc-900 dark:text-zinc-50">
-                        {b.version}
-                      </td>
                       <td className="min-w-0 truncate text-zinc-700 dark:text-zinc-300">
                         {projectNames[b.projectId] ?? b.projectId}
                       </td>
+                      <td>{b.downloadCount ?? 0}</td>
+                      <td className="font-medium text-zinc-900 dark:text-zinc-50">{b.version}</td>
+                      <td>{b.buildNumber}</td>
                       <td>{b.env}</td>
-                      <td>{b.platform}</td>
                       <td>{b.type}</td>
+                      <td>{b.platform}</td>
                       <td>
                         <span
                           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${uploadStatusBadgeClass(b.uploadStatus)}`}
@@ -368,7 +392,6 @@ export function BuildsClientView({
                           {b.uploadStatus}
                         </span>
                       </td>
-                      <td>{b.buildNumber}</td>
                       <td className="whitespace-nowrap text-zinc-600 dark:text-zinc-400">
                         {new Date(b.createdAt).toLocaleString()}
                       </td>
@@ -404,6 +427,35 @@ export function BuildsClientView({
                               -
                             </span>
                           )}
+                          {b.uploadStatus === "success" ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCopied(false);
+                                setShareBuild(b);
+                              }}
+                              title="Share build link"
+                              aria-label="Share build link"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              >
+                                <circle cx="18" cy="5" r="3" />
+                                <circle cx="6" cy="12" r="3" />
+                                <circle cx="18" cy="19" r="3" />
+                                <path d="m8.6 13.5 6.8 4" />
+                                <path d="m15.3 6.5-6.6 4" />
+                              </svg>
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             onClick={() => setConfirmDelete(b)}
@@ -464,6 +516,51 @@ export function BuildsClientView({
         }}
         onConfirm={onConfirmDelete}
       />
+
+      {shareBuild ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="mb-3 flex items-start justify-between">
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                Share build
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShareBuild(null)}
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+            {qrSrc ? (
+              <div className="mb-4 flex justify-center">
+                <img
+                  src={qrSrc}
+                  alt="Build download QR code"
+                  className="h-56 w-56 rounded-md border border-zinc-200 bg-white p-2 dark:border-zinc-700"
+                />
+              </div>
+            ) : null}
+            <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+              Anyone with this link can open the public download page.
+            </p>
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={shareLink}
+                className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+              />
+              <button
+                type="button"
+                onClick={copyShareLink}
+                className="rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

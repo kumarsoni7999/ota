@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { DashboardPaginationBar } from "@/components/dashboard/DashboardPaginationBar";
 import { DashboardSortHeaderLink } from "@/components/dashboard/DashboardSortHeaderLink";
 import { ModuleEmptyState } from "@/components/dashboard/ModuleEmptyState";
@@ -21,7 +22,7 @@ export type UpdatesListMeta = {
 };
 
 type Props = {
-  rows: OtaUpdate[];
+  rows: Array<OtaUpdate & { fileSizeBytes?: number }>;
   projectNames: Record<string, string>;
   listMeta: UpdatesListMeta;
 };
@@ -36,7 +37,22 @@ function uploadStatusLabel(u: OtaUpdate): string {
   return "Success";
 }
 
+function formatBytes(bytes?: number): string {
+  const n = bytes ?? 0;
+  if (n <= 0) {
+    return "—";
+  }
+  if (n < 1024) {
+    return `${n} B`;
+  }
+  if (n < 1024 * 1024) {
+    return `${(n / 1024).toFixed(1)} KB`;
+  }
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
+  const [selected, setSelected] = useState<(OtaUpdate & { fileSizeBytes?: number }) | null>(null);
   const {
     pathname,
     queryString,
@@ -107,10 +123,10 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
         <>
           <div className="mt-6 w-full overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <div className="w-full overflow-x-auto">
-              <table className="w-full min-w-0 table-fixed text-left text-sm">
+              <table className="w-full min-w-[1180px] table-auto text-left text-sm">
                 <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-600 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
                   <tr>
-                    <th className="w-[11%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -120,7 +136,7 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[16%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -130,7 +146,7 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[8%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -140,10 +156,16 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[26%] px-4 py-3 font-semibold tracking-wide">
+                    <th className="px-4 py-3 font-semibold tracking-wide">
                       Notes
                     </th>
-                    <th className="w-[13%] px-4 py-3">
+                    <th className="px-4 py-3 font-semibold tracking-wide">
+                      Size
+                    </th>
+                    <th className="px-4 py-3 font-semibold tracking-wide">
+                      Downloads
+                    </th>
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -153,7 +175,7 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[12%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -163,7 +185,7 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[6%] px-4 py-3">
+                    <th className="px-4 py-3">
                       <DashboardSortHeaderLink
                         pathname={pathname}
                         queryString={qs}
@@ -173,9 +195,10 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[11%] px-4 py-3 font-semibold tracking-wide">
+                    <th className="px-4 py-3 font-semibold tracking-wide">
                       Upload
                     </th>
+                    <th className="px-4 py-3 font-semibold tracking-wide">Details</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -195,6 +218,10 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         {u.metadata?.releaseNotes ?? "—"}
                       </td>
                       <td className="whitespace-nowrap text-zinc-600 dark:text-zinc-400">
+                        {formatBytes(u.fileSizeBytes)}
+                      </td>
+                      <td>{u.downloadCount ?? 0}</td>
+                      <td className="whitespace-nowrap text-zinc-600 dark:text-zinc-400">
                         {new Date(u.createdAt).toLocaleString()}
                       </td>
                       <td className="whitespace-nowrap text-zinc-600 dark:text-zinc-400">
@@ -213,6 +240,15 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                       >
                         {uploadStatusLabel(u)}
                       </td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => setSelected(u)}
+                          className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        >
+                          View
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -229,6 +265,43 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
           />
         </>
       )}
+
+      {selected ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="mb-4 flex items-start justify-between">
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                OTA update details
+              </h2>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 text-sm text-zinc-700 dark:text-zinc-300 md:grid-cols-2">
+              <p><strong>Project:</strong> {projectNames[selected.projectId] ?? selected.projectId}</p>
+              <p><strong>Version:</strong> {selected.version}</p>
+              <p><strong>Build #:</strong> {selected.buildNumber ?? 1}</p>
+              <p><strong>Env:</strong> {selected.env}</p>
+              <p><strong>Platform:</strong> {selected.platform}</p>
+              <p><strong>Size:</strong> {formatBytes(selected.fileSizeBytes)}</p>
+              <p><strong>Downloads:</strong> {selected.downloadCount ?? 0}</p>
+              <p><strong>Active:</strong> {selected.active ? "Yes" : "No"}</p>
+              <p><strong>Upload:</strong> {uploadStatusLabel(selected)}</p>
+              <p><strong>Created:</strong> {new Date(selected.createdAt).toLocaleString()}</p>
+              <p><strong>Updated:</strong> {new Date(selected.updatedAt).toLocaleString()}</p>
+              <p className="md:col-span-2"><strong>Release notes:</strong> {selected.metadata?.releaseNotes ?? "—"}</p>
+              <p><strong>Runtime version:</strong> {selected.metadata?.runtimeVersion ?? "—"}</p>
+              <p><strong>Min version:</strong> {selected.metadata?.minVersion ?? "—"}</p>
+              <p><strong>Mandatory:</strong> {selected.metadata?.mandatory ? "Yes" : "No"}</p>
+              <p className="md:col-span-2"><strong>Upload error:</strong> {selected.uploadError ?? "—"}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

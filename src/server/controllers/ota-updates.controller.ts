@@ -225,4 +225,74 @@ export const otaUpdatesController = {
       );
     }
   },
+
+  /** Public endpoint to increment OTA download count on user update click. */
+  async postDownloadCount(request: Request) {
+    const ctx = createApiContext(request);
+    const meta = buildMeta(ctx);
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch (err) {
+      otaApiLogger.warn("download-count", "invalid_json", { error: errMessage(err) });
+      return apiFailure(
+        { code: "INVALID_JSON", message: "Expected JSON body" },
+        meta,
+        { status: 400 },
+      );
+    }
+
+    const b = body as Record<string, unknown>;
+    const projectId = typeof b.projectId === "string" ? b.projectId.trim() : "";
+    const updateId = typeof b.updateId === "string" ? b.updateId.trim() : "";
+    if (!updateId) {
+      return apiFailure(
+        { code: "UPDATE_ID_REQUIRED", message: "updateId is required" },
+        meta,
+        { status: 400 },
+      );
+    }
+
+    const auth = await requireOtaPublicProjectAndClient(request, projectId);
+    if (!auth.ok) {
+      return auth.response;
+    }
+    const { project } = auth;
+
+    const row = await otaUpdateService.findById(updateId);
+    if (!row || row.projectId !== project.id) {
+      return apiFailure(
+        { code: "OTA_NOT_FOUND", message: "OTA update not found" },
+        meta,
+        { status: 404 },
+      );
+    }
+
+    try {
+      const next = await otaUpdateService.incrementDownloadCountById(updateId);
+      if (!next) {
+        return apiFailure(
+          { code: "OTA_NOT_FOUND", message: "OTA update not found" },
+          meta,
+          { status: 404 },
+        );
+      }
+      return apiSuccess(
+        { ok: true, updateId: next.id, downloadCount: next.downloadCount ?? 0 },
+        meta,
+      );
+    } catch (err) {
+      otaApiLogger.error("download-count", "increment_failed", {
+        projectId,
+        updateId,
+        error: errMessage(err),
+      });
+      return apiFailure(
+        { code: "OTA_DOWNLOAD_COUNT_FAILED", message: "Could not update download count" },
+        meta,
+        { status: 500 },
+      );
+    }
+  },
 };

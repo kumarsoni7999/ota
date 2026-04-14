@@ -12,6 +12,7 @@ import {
 import { requireDashboardProfileUser } from "@/lib/auth/dashboard-session";
 import { otaUpdateService } from "@/server/services/ota-update.service";
 import { projectService } from "@/server/services/project.service";
+import { storageSizeService } from "@/server/services/storage-size.service";
 
 export async function DashboardUpdatesContent({
   searchParams,
@@ -41,6 +42,18 @@ export async function DashboardUpdatesContent({
     page: listQuery.page,
     pageSize: listQuery.pageSize,
   });
+  const rowsWithSize = await Promise.all(
+    pageData.items.map(async (u) => {
+      const [bundleBytes, assetsBytes] = await Promise.all([
+        storageSizeService.fileSizeFromStorageRef(u.bundlePath),
+        storageSizeService.treeSizeFromStorageRef(u.assetsPath),
+      ]);
+      return {
+        ...u,
+        fileSizeBytes: bundleBytes + assetsBytes,
+      };
+    }),
+  );
 
   const filteredEmpty = pageData.totalItems === 0 && qRaw.length > 0 && hasAnyUpdates;
 
@@ -57,7 +70,7 @@ export async function DashboardUpdatesContent({
 
   return (
     <UpdatesClientView
-      rows={pageData.items}
+      rows={rowsWithSize}
       projectNames={projectNames}
       listMeta={{
         pathname: "/dashboard/updates",

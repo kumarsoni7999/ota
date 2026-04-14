@@ -44,4 +44,6 @@ export type Build = {
   uploadExpectedChunks?: number;
   /** Chunked upload: bytes received so far (sum of chunk bodies). */
   uploadReceivedBytes?: number;
+  /** Incremented whenever the build download endpoint is hit. */
+  downloadCount?: number;
 };
