@@ -1,6 +1,8 @@
+import { timingSafeEqual } from "node:crypto";
+import { CLIENT_ID_HEADER } from "@/lib/api/client-id-header";
 import { buildMeta, createApiContext } from "@/lib/api/context";
 import { apiFailure, apiSuccess } from "@/lib/api/response";
-import { requireApiSessionWithClient } from "@/lib/auth/require-api-session";
+import { isValidSessionClientId } from "@/lib/auth/client-id-format";
 import { buildChunkUploadService } from "@/server/services/build-chunk-upload.service";
 import { BuildUploadError } from "@/server/services/build-upload.service";
 import type { Project } from "@/server/models/project.model";
@@ -30,10 +32,19 @@ type ChunkedContext =
   | {
       ok: true;
       meta: ReturnType<typeof buildMeta>;
-      actor: NonNullable<Awaited<ReturnType<typeof userService.findById>>>;
+      userId: string;
       project: Project;
     }
   | { ok: false; response: Response };
+
+function clientIdsMatch(expected: string, actual: string): boolean {
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(actual, "utf8");
+  if (a.length !== b.length) {
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
 
 async function loadChunkedUploadContext(
   request: Request,
@@ -41,23 +52,6 @@ async function loadChunkedUploadContext(
 ): Promise<ChunkedContext> {
   const ctx = createApiContext(request);
   const meta = buildMeta(ctx);
-
-  const auth = requireApiSessionWithClient(request, meta);
-  if (!auth.ok) {
-    return { ok: false, response: auth.response };
-  }
-
-  const actor = await userService.findById(auth.session.sub);
-  if (!actor?.active) {
-    return {
-      ok: false,
-      response: apiFailure(
-        { code: "UNAUTHORIZED", message: "Sign in to upload" },
-        meta,
-        { status: 401 },
-      ),
-    };
-  }
 
   const pid = projectId.trim();
   if (!PROJECT_ID_RE.test(pid)) {
@@ -71,8 +65,23 @@ async function loadChunkedUploadContext(
     };
   }
 
+  const headerClientId = request.headers.get(CLIENT_ID_HEADER)?.trim() ?? "";
+  if (!isValidSessionClientId(headerClientId)) {
+    return {
+      ok: false,
+      response: apiFailure(
+        {
+          code: "INVALID_CLIENT_ID",
+          message: `Valid ${CLIENT_ID_HEADER} header is required`,
+        },
+        meta,
+        { status: 400 },
+      ),
+    };
+  }
+
   const project = await projectService.findById(pid);
-  if (!project || project.createdBy !== actor.id) {
+  if (!project || !project.active) {
     return {
       ok: false,
       response: apiFailure(
@@ -82,8 +91,22 @@ async function loadChunkedUploadContext(
       ),
     };
   }
+  const actor = await userService.findById(project.createdBy);
+  if (!actor?.active || !clientIdsMatch(actor.clientId, headerClientId)) {
+    return {
+      ok: false,
+      response: apiFailure(
+        {
+          code: "FORBIDDEN",
+          message: "Project id and client id do not match",
+        },
+        meta,
+        { status: 403 },
+      ),
+    };
+  }
 
-  return { ok: true, meta, actor, project };
+  return { ok: true, meta, userId: actor.id, project };
 }
 
 /**
@@ -114,7 +137,7 @@ export const projectBuildsChunkController = {
     if (!loaded.ok) {
       return loaded.response;
     }
-    const { meta, actor, project } = loaded;
+    const { meta, userId, project } = loaded;
 
     try {
       if (phase === "init") {
@@ -131,7 +154,7 @@ export const projectBuildsChunkController = {
         const body = buildChunkUploadService.parseInitBody(json);
         const { build } = await buildChunkUploadService.init({
           project,
-          userId: actor.id,
+          userId,
           body,
         });
         return apiSuccess({ build }, meta, { status: 201 });
@@ -152,7 +175,7 @@ export const projectBuildsChunkController = {
       if (phase === "complete") {
         const { build } = await buildChunkUploadService.complete({
           project,
-          userId: actor.id,
+          userId,
           buildId,
         });
         return apiSuccess({ build }, meta);
@@ -186,7 +209,7 @@ export const projectBuildsChunkController = {
 
       const { build } = await buildChunkUploadService.writeChunk({
         project,
-        userId: actor.id,
+        userId,
         buildId,
         chunkIndex,
         body: buf,

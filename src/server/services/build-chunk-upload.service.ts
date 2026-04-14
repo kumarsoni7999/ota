@@ -134,12 +134,12 @@ async function cleanupPriorBuildState(
 export type ChunkInitBody = {
   name: string;
   version: string;
+  buildNumber: number;
   env: string;
   platform: string;
   type: string;
   totalSize: number;
   totalChunks: number;
-  buildNumber?: number;
   runtimeVersion?: string;
   commitHash?: string;
   branch?: string;
@@ -191,18 +191,26 @@ export const buildChunkUploadService = {
         413,
       );
     }
+    const buildNumber = b.buildNumber;
+    if (
+      typeof buildNumber !== "number" ||
+      !Number.isInteger(buildNumber) ||
+      buildNumber < 1
+    ) {
+      throw new BuildUploadError(
+        "INVALID_BUILD_NUMBER",
+        "buildNumber must be a positive integer",
+      );
+    }
     return {
       name,
       version,
+      buildNumber,
       env,
       platform,
       type,
       totalSize,
       totalChunks,
-      buildNumber:
-        typeof b.buildNumber === "number" && Number.isInteger(b.buildNumber) && b.buildNumber > 0
-          ? b.buildNumber
-          : undefined,
       runtimeVersion: optionalJsonString(b, "runtimeVersion"),
       commitHash: optionalJsonString(b, "commitHash"),
       branch: optionalJsonString(b, "branch"),
@@ -236,6 +244,7 @@ export const buildChunkUploadService = {
       projectId: project.id,
       env,
       version: versionTrim,
+      buildNumber: body.buildNumber,
       platform,
       type,
     });
@@ -245,8 +254,6 @@ export const buildChunkUploadService = {
 
     if (existing) {
       await cleanupPriorBuildState(project, existing);
-      const buildNumber =
-        body.buildNumber ?? existing.buildNumber;
       const metadata = mergeMetadataFromInit(
         existing.metadata,
         name,
@@ -255,7 +262,7 @@ export const buildChunkUploadService = {
       build = {
         ...existing,
         version: versionTrim,
-        buildNumber,
+        buildNumber: body.buildNumber,
         metadata,
         uploadStatus: "pending",
         uploadExpectedBytes: body.totalSize,
@@ -281,7 +288,7 @@ export const buildChunkUploadService = {
         projectId: project.id,
         env,
         version: versionTrim,
-        buildNumber: body.buildNumber ?? 1,
+        buildNumber: body.buildNumber,
         type,
         platform,
         filePath: buildPendingPlaceholderStorageRef(project.projectKey, id),

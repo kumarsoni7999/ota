@@ -1,6 +1,8 @@
+import { timingSafeEqual } from "node:crypto";
+import { CLIENT_ID_HEADER } from "@/lib/api/client-id-header";
 import { buildMeta, createApiContext } from "@/lib/api/context";
 import { apiFailure, apiSuccess } from "@/lib/api/response";
-import { requireApiSessionWithClient } from "@/lib/auth/require-api-session";
+import { isValidSessionClientId } from "@/lib/auth/client-id-format";
 import {
   BuildUploadError,
   buildUploadService,
@@ -11,6 +13,15 @@ import { userService } from "@/server/services/user.service";
 const PROJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function clientIdsMatch(expected: string, actual: string): boolean {
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(actual, "utf8");
+  if (a.length !== b.length) {
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
+
 export const projectBuildsUploadController = {
   /**
    * `multipart/form-data` upload for a native build artifact.
@@ -20,11 +31,7 @@ export const projectBuildsUploadController = {
   async post(request: Request, projectId: string) {
     const ctx = createApiContext(request);
     const meta = buildMeta(ctx);
-
-    const auth = requireApiSessionWithClient(request, meta);
-    if (!auth.ok) {
-      return auth.response;
-    }
+    const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
 
     const pid = projectId.trim();
     if (!PROJECT_ID_RE.test(pid)) {
@@ -35,21 +42,47 @@ export const projectBuildsUploadController = {
       );
     }
 
-    const actor = await userService.findById(auth.session.sub);
-    if (!actor?.active) {
+    const headerClientId = request.headers.get(CLIENT_ID_HEADER)?.trim() ?? "";
+    if (!isValidSessionClientId(headerClientId)) {
       return apiFailure(
-        { code: "UNAUTHORIZED", message: "Sign in to upload a build" },
+        {
+          code: "INVALID_CLIENT_ID",
+          message: `Valid ${CLIENT_ID_HEADER} header is required`,
+        },
         meta,
-        { status: 401 },
+        { status: 400 },
       );
     }
 
     const project = await projectService.findById(pid);
-    if (!project || project.createdBy !== actor.id) {
+    if (!project || !project.active) {
       return apiFailure(
         { code: "PROJECT_NOT_FOUND", message: "Project not found" },
         meta,
         { status: 404 },
+      );
+    }
+    const actor = await userService.findById(project.createdBy);
+    if (!actor?.active || !clientIdsMatch(actor.clientId, headerClientId)) {
+      return apiFailure(
+        {
+          code: "FORBIDDEN",
+          message: "Project id and client id do not match",
+        },
+        meta,
+        { status: 403 },
+      );
+    }
+
+    if (!contentType.includes("multipart/form-data")) {
+      return apiFailure(
+        {
+          code: "INVALID_CONTENT_TYPE",
+          message:
+            "Expected multipart/form-data with file field (file/buildFile/build). For chunked JSON init use phase=init.",
+        },
+        meta,
+        { status: 400 },
       );
     }
 
@@ -60,7 +93,8 @@ export const projectBuildsUploadController = {
       return apiFailure(
         {
           code: "INVALID_FORM",
-          message: "Could not parse multipart form data",
+          message:
+            "Could not parse multipart form data. Do not set Content-Type manually; let your HTTP client set multipart boundary.",
         },
         meta,
         { status: 400 },

@@ -1,5 +1,14 @@
+import { rm, unlink } from "node:fs/promises";
+import path from "node:path";
+import { BUILD_MANIFEST_FILENAME } from "@/server/models/build-manifest.model";
 import type { Build, BuildUploadStatus } from "@/server/models/build.model";
 import {
+  buildPendingUploadDirAbs,
+  buildVersionDir,
+  fromStorageRelative,
+} from "@/server/storage/project-storage";
+import {
+  deleteJsonRecord,
   readAllJsonRecords,
   readJsonRecord,
   sortByCreatedAtDesc,
@@ -42,12 +51,14 @@ export const buildService = {
   },
 
   /**
-   * Same logical release slot: one artifact per project/env/platform/type/version.
+   * Same logical release slot: one artifact per
+   * project/env/platform/type/version/buildNumber.
    */
   async findByReleaseSlot(input: {
     projectId: string;
     env: Build["env"];
     version: string;
+    buildNumber: number;
     platform: Build["platform"];
     type: Build["type"];
   }): Promise<Build | null> {
@@ -59,6 +70,7 @@ export const buildService = {
           b.projectId === input.projectId &&
           b.env === input.env &&
           b.version === v &&
+          b.buildNumber === input.buildNumber &&
           b.platform === input.platform &&
           b.type === input.type,
       ) ?? null
@@ -67,5 +79,42 @@ export const buildService = {
 
   async save(build: Build): Promise<void> {
     await writeJsonRecord("builds", build.id, build);
+  },
+
+  async deletePermanently(params: {
+    build: Build;
+    projectKey: string;
+  }): Promise<void> {
+    const { build, projectKey } = params;
+
+    await rm(buildPendingUploadDirAbs(projectKey, build.id), {
+      recursive: true,
+      force: true,
+    });
+
+    try {
+      await unlink(fromStorageRelative(build.filePath));
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        throw e;
+      }
+    }
+
+    try {
+      await unlink(
+        path.join(
+          buildVersionDir(projectKey, build.platform, build.env, build.version),
+          BUILD_MANIFEST_FILENAME,
+        ),
+      );
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        throw e;
+      }
+    }
+
+    await deleteJsonRecord("builds", build.id);
   },
 };

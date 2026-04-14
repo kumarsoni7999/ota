@@ -140,10 +140,13 @@ function pickFormFile(form: FormData): File {
   );
 }
 
-function parseBuildNumber(form: FormData, fallback: number): number {
+function parseBuildNumber(form: FormData): number {
   const raw = optionalString(form, "buildNumber");
   if (!raw) {
-    return fallback;
+    throw new BuildUploadError(
+      "FIELD_REQUIRED",
+      'Missing required form field "buildNumber"',
+    );
   }
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1) {
@@ -170,7 +173,7 @@ export const buildUploadService = {
   /**
    * Writes the native artifact under `storage/projects/<key>/builds/.../<version>/`
    * plus `build-manifest.json` (OTA-style metadata for tooling / JS update flows).
-   * Upserts when the same project/env/platform/type/version already exists.
+   * Upserts when the same project/env/platform/type/version/buildNumber exists.
    */
   async saveFromMultipart(params: {
     project: Project;
@@ -189,6 +192,7 @@ export const buildUploadService = {
 
     const name = requireString(form, "name");
     const version = requireString(form, "version");
+    const buildNumber = parseBuildNumber(form);
     const env = parseEnv(requireString(form, "env"));
     const platform = parsePlatform(requireString(form, "platform"));
     const type = parseType(requireString(form, "type"));
@@ -239,6 +243,7 @@ export const buildUploadService = {
       projectId: project.id,
       env,
       version: versionTrim,
+      buildNumber,
       platform,
       type,
     });
@@ -276,11 +281,6 @@ export const buildUploadService = {
     if (minSupportedVersion !== undefined) {
       metadata.minSupportedVersion = minSupportedVersion;
     }
-
-    const buildNumber = parseBuildNumber(
-      form,
-      existing?.buildNumber ?? 1,
-    );
 
     let build: Build;
     let created: boolean;

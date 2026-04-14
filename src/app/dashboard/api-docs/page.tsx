@@ -38,7 +38,7 @@ const MULTIPART_FIELDS_JSONC = `// Sent as multipart/form-data: each key is a fo
   "env": "DEV",                       // required — DEV | QA | STAGE | PROD
   "platform": "android",              // required — android | ios
   "type": "apk",                      // required — apk | aab | ipa
-  "buildNumber": "42",                // optional — positive int string; defaults when updating same slot
+  "buildNumber": "42",                // required — positive int string
   "runtimeVersion": "1.0.0",          // optional — Expo-style runtime key
   "commitHash": "a1b2c3d4",           // optional
   "branch": "main",                   // optional
@@ -46,15 +46,16 @@ const MULTIPART_FIELDS_JSONC = `// Sent as multipart/form-data: each key is a fo
   "minSupportedVersion": "1.0.0"     // optional
 }`;
 
-const CHUNKED_UPLOAD_PHASES = `// Single endpoint: POST /api/projects/{projectId}/builds/chunked-upload
-// Use query "phase" (alias: "step") to choose the operation — always the same path and HTTP method.
+const CHUNKED_UPLOAD_PHASES = `// Preferred endpoint: POST /api/builds?projectId={projectId}
+// Compatible endpoint: POST /api/projects/{projectId}/builds/chunked-upload
+// Use query "phase" (alias: "step") to choose the operation.
 {
   "phase=init": "JSON body below; creates build with uploadStatus pending",
   "phase=chunk": "Query buildId + chunkIndex (or index); body = raw chunk bytes",
   "phase=complete": "Query buildId only; no body; finalizes artifact"
 }`;
 
-const CHUNK_INIT_HEADERS = `POST /api/projects/{projectId}/builds/chunked-upload?phase=init HTTP/1.1
+const CHUNK_INIT_HEADERS = `POST /api/builds?projectId={projectId}&phase=init HTTP/1.1
 Host: your-ota-host.example
 Cookie: ota_session=<session-token>
 X-Client-Id: <24-char-hex-client-id>
@@ -68,7 +69,7 @@ const CHUNK_INIT_JSONC = `{
   "type": "apk",                      // required — apk | aab | ipa
   "totalSize": 5242880,               // required — total bytes of all chunks combined
   "totalChunks": 10,                  // required — how many phase=chunk requests you will send
-  "buildNumber": 42,                  // optional — positive integer
+  "buildNumber": 42,                  // required — positive integer
   "runtimeVersion": "1.0.0",          // optional
   "commitHash": "a1b2c3d4",           // optional
   "branch": "main",                   // optional
@@ -76,7 +77,7 @@ const CHUNK_INIT_JSONC = `{
   "minSupportedVersion": "1.0.0"     // optional
 }`;
 
-const CHUNK_PUT_HEADERS = `POST /api/projects/{projectId}/builds/chunked-upload?phase=chunk&buildId={buildId}&chunkIndex=0 HTTP/1.1
+const CHUNK_PUT_HEADERS = `POST /api/builds?projectId={projectId}&phase=chunk&buildId={buildId}&chunkIndex=0 HTTP/1.1
 Host: your-ota-host.example
 Cookie: ota_session=<session-token>
 X-Client-Id: <24-char-hex-client-id>
@@ -85,13 +86,34 @@ Content-Type: application/octet-stream`;
 const CHUNK_PUT_BODY_NOTE = `// Body: raw bytes for this chunk only (must not be empty).
 // chunkIndex: 0 .. totalChunks-1 (alias query name: index). buildId from phase=init response.`;
 
-const CHUNK_COMPLETE_HEADERS = `POST /api/projects/{projectId}/builds/chunked-upload?phase=complete&buildId={buildId} HTTP/1.1
+const CHUNK_COMPLETE_HEADERS = `POST /api/builds?projectId={projectId}&phase=complete&buildId={buildId} HTTP/1.1
 Host: your-ota-host.example
 Cookie: ota_session=<session-token>
 X-Client-Id: <24-char-hex-client-id>`;
 
 const CHUNK_COMPLETE_NOTE = `// No request body. Verifies chunk sizes sum to totalSize, assembles the artifact,
 // writes build-manifest.json, then sets uploadStatus to success (or failed on mismatch/error).`;
+
+const OTA_UPLOAD_HEADERS = `POST /api/ota-updates?projectId={projectId} HTTP/1.1
+Host: your-ota-host.example
+X-Client-Id: <24-char-hex-client-id>
+Content-Type: multipart/form-data; boundary=----otaBoundary`;
+
+const OTA_UPLOAD_FIELDS_JSONC = `// Sent as multipart/form-data.
+// Required text fields: version, env, platform.
+// Required file: bundle (or file/jsBundle).
+// Optional files: repeat "assets" field for each asset file.
+{
+  "version": "1.0.1",
+  "env": "DEV",                       // DEV | QA | STAGE | PROD
+  "platform": "android",              // android | ios
+  "runtimeVersion": "1.0.0",          // optional
+  "mandatory": "true",                // optional (true/false or 1/0)
+  "minVersion": "1.0.0",              // optional
+  "releaseNotes": "Fix push issue",   // optional
+  "bundle": "<index.bundle file>",    // required
+  "assets[]": "<asset file(s)>"       // optional; send as repeated "assets" parts
+}`;
 
 const BUILD_UPLOAD_RESPONSE_201 = `{
   "success": true,
@@ -259,10 +281,9 @@ export default function DashboardApiDocsPage() {
             </h2>
             <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
               All steps use{" "}
-              <code className="font-mono text-[11px]">
-                POST .../builds/chunked-upload
-              </code>{" "}
-              with query{" "}
+              <code className="font-mono text-[11px]">POST /api/builds</code> with{" "}
+              <code className="font-mono text-[11px]">projectId</code> in query (or
+              the project-scoped chunked endpoint) and query{" "}
               <code className="font-mono text-[11px]">phase=init|chunk|complete</code>.
               Init creates{" "}
               <code className="font-mono text-[11px]">uploadStatus: pending</code>; chunk
@@ -329,6 +350,11 @@ export default function DashboardApiDocsPage() {
               <code className="font-mono text-[11px]">GET /api/ota-updates</code> — paginated
               OTA update records.
             </p>
+            <DocCodeBox title="POST /api/ota-updates — headers" code={OTA_UPLOAD_HEADERS} />
+            <DocCodeBox
+              title="POST /api/ota-updates — fields (JSON shape; send as multipart parts)"
+              code={OTA_UPLOAD_FIELDS_JSONC}
+            />
           </section>
 
           <section>

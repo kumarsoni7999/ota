@@ -1,8 +1,13 @@
 "use client";
 
+import { useCallback, useState } from "react";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { useDashboardClientId } from "@/components/dashboard/DashboardAuthContext";
 import { DashboardPaginationBar } from "@/components/dashboard/DashboardPaginationBar";
 import { DashboardSortHeaderLink } from "@/components/dashboard/DashboardSortHeaderLink";
+import { DashboardToast } from "@/components/dashboard/DashboardToast";
 import { ModuleEmptyState } from "@/components/dashboard/ModuleEmptyState";
+import { CLIENT_ID_HEADER } from "@/lib/api/client-id-header";
 import { dashboardHref } from "@/lib/dashboard/dashboard-list-query";
 import type { SortOrder } from "@/lib/dashboard/sort-order";
 import type {
@@ -36,6 +41,9 @@ type Props = {
   projectOptions: ProjectOption[];
   listMeta: BuildsListMeta;
 };
+
+type ApiSuccess<T> = { success: true; data: T };
+type ApiFailure = { success: false; error: { code: string; message: string } };
 
 function uploadStatusBadgeClass(s: BuildUploadStatus): string {
   switch (s) {
@@ -140,6 +148,7 @@ export function BuildsClientView({
   projectOptions,
   listMeta,
 }: Props) {
+  const clientId = useDashboardClientId();
   const {
     pathname,
     queryString,
@@ -155,11 +164,56 @@ export function BuildsClientView({
     platformFilter,
     uploadStatusFilter,
   } = listMeta;
+  const router = useRouter();
+  const [toast, setToast] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Build | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const dismissToast = useCallback(() => setToast(null), []);
 
   const qs = queryString;
 
+  async function runDelete(buildId: string) {
+    const res = await fetch(`/api/builds/${buildId}`, {
+      method: "DELETE",
+      headers: { [CLIENT_ID_HEADER]: clientId },
+      credentials: "same-origin",
+    });
+    const json = (await res.json()) as ApiSuccess<{ ok: boolean }> | ApiFailure;
+    if (!json.success) {
+      setToast({ kind: "error", text: json.error.message });
+      return false;
+    }
+    setToast({ kind: "success", text: "Build deleted permanently." });
+    router.refresh();
+    return true;
+  }
+
+  async function onConfirmDelete() {
+    if (!confirmDelete) {
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      await runDelete(confirmDelete.id);
+    } finally {
+      setDeleteLoading(false);
+      setConfirmDelete(null);
+    }
+  }
+
   return (
     <div className="w-full min-w-0">
+      {toast ? (
+        <DashboardToast
+          message={toast.text}
+          kind={toast.kind}
+          onDismiss={dismissToast}
+        />
+      ) : null}
+
       <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
         Builds
       </h1>
@@ -264,7 +318,7 @@ export function BuildsClientView({
                         pathname={pathname}
                         queryString={qs}
                         column="buildNumber"
-                        label="#"
+                        label="Build #"
                         activeSort={sort}
                         activeOrder={order}
                       />
@@ -289,16 +343,7 @@ export function BuildsClientView({
                         activeOrder={order}
                       />
                     </th>
-                    <th className="w-[8%] px-4 py-3">
-                      <DashboardSortHeaderLink
-                        pathname={pathname}
-                        queryString={qs}
-                        column="active"
-                        label="Active"
-                        activeSort={sort}
-                        activeOrder={order}
-                      />
-                    </th>
+                    <th className="w-[10%] px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -330,7 +375,61 @@ export function BuildsClientView({
                       <td className="whitespace-nowrap text-zinc-600 dark:text-zinc-400">
                         {new Date(b.updatedAt).toLocaleString()}
                       </td>
-                      <td>{b.active ? "Yes" : "No"}</td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          {b.uploadStatus === "success" ? (
+                            <a
+                              href={`/api/builds/${b.id}/download`}
+                              title="Download artifact"
+                              aria-label="Download build artifact"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-zinc-200 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              >
+                                <path d="M12 3v12" />
+                                <path d="m7 10 5 5 5-5" />
+                                <path d="M5 21h14" />
+                              </svg>
+                            </a>
+                          ) : (
+                            <span className="inline-flex h-8 w-8 items-center justify-center text-xs text-zinc-400">
+                              -
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(b)}
+                            title="Delete build permanently"
+                            aria-label="Delete build permanently"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/40"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className="h-4 w-4"
+                              aria-hidden="true"
+                            >
+                              <path d="M3 6h18" />
+                              <path d="M8 6V4h8v2" />
+                              <path d="M19 6l-1 14H6L5 6" />
+                              <path d="M10 11v6" />
+                              <path d="M14 11v6" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -347,6 +446,24 @@ export function BuildsClientView({
           />
         </>
       )}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        confirming={deleteLoading}
+        title="Delete build permanently?"
+        description={
+          confirmDelete
+            ? `This will permanently remove ${confirmDelete.version} (build #${confirmDelete.buildNumber}) and its stored artifact file. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete permanently"
+        variant="danger"
+        onCancel={() => {
+          if (!deleteLoading) {
+            setConfirmDelete(null);
+          }
+        }}
+        onConfirm={onConfirmDelete}
+      />
     </div>
   );
 }
