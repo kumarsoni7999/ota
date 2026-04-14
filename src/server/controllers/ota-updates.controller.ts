@@ -13,14 +13,41 @@ export const otaUpdatesController = {
   async get(request: Request) {
     const ctx = createApiContext(request);
     const meta = buildMeta(ctx);
+    const url = new URL(request.url);
+    const projectId = url.searchParams.get("projectId")?.trim() ?? "";
 
+    // Public list flow (for OTA clients): requires projectId + X-Client-Id.
+    if (projectId) {
+      const publicAuth = await requireOtaPublicProjectAndClient(request, projectId);
+      if (!publicAuth.ok) {
+        return publicAuth.response;
+      }
+      try {
+        const query = parsePaginationParams(url.searchParams);
+        const rows = (await otaUpdateService.listAll()).filter(
+          (u) => u.projectId === publicAuth.project.id,
+        );
+        const page = paginateArray(rows, query);
+        return apiSuccess(page, meta);
+      } catch (err) {
+        otaApiLogger.error("updates-list", "public_list_failed", {
+          projectId,
+          error: errMessage(err),
+        });
+        return apiFailure(
+          { code: "OTA_UPDATES_LIST_FAILED", message: "Could not load OTA updates" },
+          meta,
+          { status: 500 },
+        );
+      }
+    }
+
+    // Dashboard flow: requires signed-in session.
     const auth = requireApiSessionWithClient(request, meta);
     if (!auth.ok) {
       return auth.response;
     }
-
     try {
-      const url = new URL(request.url);
       const query = parsePaginationParams(url.searchParams);
       const rows = await otaUpdateService.listForDashboardUser(
         auth.session.sub,
