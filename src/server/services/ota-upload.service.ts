@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import type { BuildEnv, BuildPlatform } from "@/server/models/build.model";
 import type { OtaUpdate, OtaUpdateMetadata } from "@/server/models/ota-update.model";
 import type { Project } from "@/server/models/project.model";
@@ -132,12 +133,17 @@ function safeAssetFileName(index: number, rawName: string): string {
   return safe ? `${String(index).padStart(4, "0")}-${safe}` : `asset-${index}`;
 }
 
-async function writeAssets(assetsDir: string, files: File[]): Promise<void> {
+async function writeAssets(
+  assetsDir: string,
+  files: File[],
+  compression: "identity" | "gzip",
+): Promise<void> {
   await mkdir(assetsDir, { recursive: true });
   const assetLimit = maxOtaAssetBytes();
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
-    if (f.size > assetLimit) {
+    const decoded = await fileBufferWithCompression(f, compression);
+    if (decoded.length > assetLimit) {
       throw new OtaUploadError(
         "ASSET_TOO_LARGE",
         `Asset "${f.name}" exceeds ${assetLimit} bytes`,
@@ -145,7 +151,7 @@ async function writeAssets(assetsDir: string, files: File[]): Promise<void> {
       );
     }
     const out = path.join(assetsDir, safeAssetFileName(i, f.name));
-    await writeFile(out, Buffer.from(await f.arrayBuffer()));
+    await writeFile(out, decoded);
   }
 }
 
@@ -155,6 +161,37 @@ function parsePlatformValue(form: FormData): BuildPlatform {
 
 function parseEnvValue(form: FormData): BuildEnv {
   return parseEnv(requireString(form, "env"));
+}
+
+function parseCompression(form: FormData, key: string): "identity" | "gzip" {
+  const raw = optionalString(form, key);
+  if (!raw) {
+    return "identity";
+  }
+  const v = raw.toLowerCase();
+  if (v === "identity" || v === "gzip") {
+    return v;
+  }
+  throw new OtaUploadError("INVALID_COMPRESSION", `${key} must be "identity" or "gzip"`);
+}
+
+async function fileBufferWithCompression(
+  file: File,
+  compression: "identity" | "gzip",
+): Promise<Buffer> {
+  const raw = Buffer.from(await file.arrayBuffer());
+  if (compression === "identity") {
+    return raw;
+  }
+  try {
+    return gunzipSync(raw);
+  } catch {
+    throw new OtaUploadError(
+      "INVALID_COMPRESSED_FILE",
+      `Could not gunzip uploaded file "${file.name || "bundle"}"`,
+      400,
+    );
+  }
 }
 
 async function nextBuildNumberForSlot(input: {
@@ -204,10 +241,13 @@ export const otaUploadService = {
     const minVersion = optionalString(form, "minVersion");
     const releaseNotes = optionalString(form, "releaseNotes");
     const mandatory = parseMandatory(form);
+    const bundleCompression = parseCompression(form, "bundleCompression");
+    const assetsCompression = parseCompression(form, "assetsCompression");
     const assets = assetFiles(form);
 
+    const bundleBuffer = await fileBufferWithCompression(bundle, bundleCompression);
     const bundleLimit = maxOtaBundleBytes();
-    if (bundle.size > bundleLimit) {
+    if (bundleBuffer.length > bundleLimit) {
       throw new OtaUploadError(
         "BUNDLE_TOO_LARGE",
         `Bundle exceeds ${bundleLimit} bytes`,
@@ -269,9 +309,9 @@ export const otaUploadService = {
       await mkdir(versionDir, { recursive: true });
 
       const bundleAbs = otaBundleAbsolutePath(project.projectKey, platform, env, storageVersion);
-      await writeFile(bundleAbs, Buffer.from(await bundle.arrayBuffer()));
+      await writeFile(bundleAbs, bundleBuffer);
       const assetsDir = otaAssetsAbsoluteDir(project.projectKey, platform, env, storageVersion);
-      await writeAssets(assetsDir, assets);
+      await writeAssets(assetsDir, assets, assetsCompression);
 
       const next: OtaUpdate = {
         ...uploadingEntry,
