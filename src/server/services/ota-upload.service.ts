@@ -92,6 +92,21 @@ function parseVersion(form: FormData): string {
   return requireString(form, "version");
 }
 
+function parseBuildNumber(form: FormData, fallback: number): number {
+  const raw = optionalString(form, "buildNumber");
+  if (!raw) {
+    return fallback;
+  }
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    throw new OtaUploadError(
+      "INVALID_BUILD_NUMBER",
+      "buildNumber must be a positive integer",
+    );
+  }
+  return n;
+}
+
 function parseBundleFile(form: FormData): File {
   const keys = ["bundle", "file", "jsBundle"] as const;
   for (const key of keys) {
@@ -183,6 +198,8 @@ export const otaUploadService = {
       version,
     });
 
+    const buildNumber = parseBuildNumber(form, existing?.buildNumber ?? 1);
+
     const now = new Date().toISOString();
     const id = existing?.id ?? randomUUID();
     const versionDir = otaVersionDir(project.projectKey, platform, env, version);
@@ -216,6 +233,7 @@ export const otaUploadService = {
           env,
           platform,
           version,
+          buildNumber,
           bundlePath: otaBundleStorageRef(project.projectKey, platform, env, version),
           assetsPath: otaAssetsStorageRef(project.projectKey, platform, env, version),
           metadata,
@@ -229,6 +247,7 @@ export const otaUploadService = {
           env,
           platform,
           version,
+          buildNumber,
           bundlePath: otaBundleStorageRef(project.projectKey, platform, env, version),
           assetsPath: otaAssetsStorageRef(project.projectKey, platform, env, version),
           metadata,

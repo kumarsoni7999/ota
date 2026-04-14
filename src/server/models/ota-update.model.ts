@@ -14,6 +14,8 @@ export type OtaUpdate = {
   env: BuildEnv;
   platform: BuildPlatform;
   version: string;
+  /** OTA package build number (not native app build); included in fingerprint. */
+  buildNumber?: number;
   /** POSIX path relative to `storage/` (see `otaBundleStorageRef`). */
   bundlePath: string;
   /** POSIX path relative to `storage/` — typically the `assets/` directory beside the bundle. */

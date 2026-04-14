@@ -46,4 +46,25 @@ export const otaUpdateService = {
   async save(update: OtaUpdate): Promise<void> {
     await writeJsonRecord("ota-updates", update.id, update);
   },
+
+  /** Latest active OTA row for a project + platform + channel (env). */
+  async findLatestActive(input: {
+    projectId: string;
+    platform: OtaUpdate["platform"];
+    env: OtaUpdate["env"];
+  }): Promise<OtaUpdate | null> {
+    const rows = await this.listAll();
+    const matching = rows.filter(
+      (u) =>
+        u.projectId === input.projectId &&
+        u.platform === input.platform &&
+        u.env === input.env &&
+        u.active !== false,
+    );
+    if (matching.length === 0) {
+      return null;
+    }
+    matching.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return matching[0] ?? null;
+  },
 };

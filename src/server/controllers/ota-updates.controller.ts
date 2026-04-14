@@ -1,26 +1,12 @@
-import { timingSafeEqual } from "node:crypto";
-import { CLIENT_ID_HEADER } from "@/lib/api/client-id-header";
 import { buildMeta, createApiContext } from "@/lib/api/context";
 import { paginateArray, parsePaginationParams } from "@/lib/api/pagination";
 import { apiFailure, apiSuccess } from "@/lib/api/response";
-import { isValidSessionClientId } from "@/lib/auth/client-id-format";
 import { requireApiSessionWithClient } from "@/lib/auth/require-api-session";
+import { parseEnv, parsePlatform } from "@/server/services/build-upload.service";
+import { otaCheckService } from "@/server/services/ota-check.service";
 import { otaUpdateService } from "@/server/services/ota-update.service";
+import { requireOtaPublicProjectAndClient } from "@/server/services/ota-public-auth";
 import { OtaUploadError, otaUploadService } from "@/server/services/ota-upload.service";
-import { projectService } from "@/server/services/project.service";
-import { userService } from "@/server/services/user.service";
-
-const PROJECT_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function clientIdsMatch(expected: string, actual: string): boolean {
-  const a = Buffer.from(expected, "utf8");
-  const b = Buffer.from(actual, "utf8");
-  if (a.length !== b.length) {
-    return false;
-  }
-  return timingSafeEqual(a, b);
-}
 
 export const otaUpdatesController = {
   async get(request: Request) {
@@ -58,45 +44,11 @@ export const otaUpdatesController = {
     const meta = buildMeta(ctx);
     const url = new URL(request.url);
     const projectId = url.searchParams.get("projectId")?.trim() ?? "";
-    if (!PROJECT_ID_RE.test(projectId)) {
-      return apiFailure(
-        { code: "INVALID_PROJECT_ID", message: "Invalid project id" },
-        meta,
-        { status: 400 },
-      );
+    const auth = await requireOtaPublicProjectAndClient(request, projectId);
+    if (!auth.ok) {
+      return auth.response;
     }
-
-    const headerClientId = request.headers.get(CLIENT_ID_HEADER)?.trim() ?? "";
-    if (!isValidSessionClientId(headerClientId)) {
-      return apiFailure(
-        {
-          code: "INVALID_CLIENT_ID",
-          message: `Valid ${CLIENT_ID_HEADER} header is required`,
-        },
-        meta,
-        { status: 400 },
-      );
-    }
-
-    const project = await projectService.findById(projectId);
-    if (!project || !project.active) {
-      return apiFailure(
-        { code: "PROJECT_NOT_FOUND", message: "Project not found" },
-        meta,
-        { status: 404 },
-      );
-    }
-    const actor = await userService.findById(project.createdBy);
-    if (!actor?.active || !clientIdsMatch(actor.clientId, headerClientId)) {
-      return apiFailure(
-        {
-          code: "FORBIDDEN",
-          message: "Project id and client id do not match",
-        },
-        meta,
-        { status: 403 },
-      );
-    }
+    const { project, actor } = auth;
 
     const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
     if (!contentType.includes("multipart/form-data")) {
@@ -143,6 +95,74 @@ export const otaUpdatesController = {
       }
       return apiFailure(
         { code: "OTA_UPLOAD_FAILED", message: "Could not store OTA update" },
+        meta,
+        { status: 500 },
+      );
+    }
+  },
+
+  /**
+   * Public check endpoint: compares `currentFingerprint` to latest active OTA
+   * fingerprint `{version}_{buildNumber}_{env}_{updatedAt}`.
+   */
+  async postCheck(request: Request) {
+    const ctx = createApiContext(request);
+    const meta = buildMeta(ctx);
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return apiFailure(
+        { code: "INVALID_JSON", message: "Expected JSON body" },
+        meta,
+        { status: 400 },
+      );
+    }
+    const b = body as Record<string, unknown>;
+    const projectId = typeof b.projectId === "string" ? b.projectId.trim() : "";
+    const platformRaw = typeof b.platform === "string" ? b.platform.trim() : "";
+    const envRaw = typeof b.env === "string" ? b.env.trim() : "";
+    const currentFingerprint =
+      typeof b.currentFingerprint === "string"
+        ? b.currentFingerprint.trim()
+        : undefined;
+
+    const auth = await requireOtaPublicProjectAndClient(request, projectId);
+    if (!auth.ok) {
+      return auth.response;
+    }
+    const { project } = auth;
+
+    let platform;
+    let env;
+    try {
+      platform = parsePlatform(platformRaw);
+      env = parseEnv(envRaw);
+    } catch {
+      return apiFailure(
+        { code: "INVALID_BODY", message: "Invalid platform or env" },
+        meta,
+        { status: 400 },
+      );
+    }
+
+    try {
+      const data = await otaCheckService.checkForClient({
+        request,
+        projectId: project.id,
+        platform,
+        env,
+        currentFingerprint:
+          currentFingerprint && currentFingerprint.length > 0
+            ? currentFingerprint
+            : undefined,
+        projectKey: project.projectKey,
+      });
+      return apiSuccess(data, meta);
+    } catch {
+      return apiFailure(
+        { code: "OTA_CHECK_FAILED", message: "Could not check for updates" },
         meta,
         { status: 500 },
       );
