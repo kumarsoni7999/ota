@@ -3,6 +3,7 @@ import { paginateArray, parsePaginationParams } from "@/lib/api/pagination";
 import { apiFailure, apiSuccess } from "@/lib/api/response";
 import { requireApiSessionWithClient } from "@/lib/auth/require-api-session";
 import { parseEnv, parsePlatform } from "@/server/services/build-upload.service";
+import { errMessage, otaApiLogger } from "@/server/services/ota-api-logger";
 import { otaCheckService } from "@/server/services/ota-check.service";
 import { otaUpdateService } from "@/server/services/ota-update.service";
 import { requireOtaPublicProjectAndClient } from "@/server/services/ota-public-auth";
@@ -26,7 +27,8 @@ export const otaUpdatesController = {
       );
       const page = paginateArray(rows, query);
       return apiSuccess(page, meta);
-    } catch {
+    } catch (err) {
+      otaApiLogger.error("updates-list", "list_failed", { error: errMessage(err) });
       return apiFailure(
         { code: "OTA_UPDATES_LIST_FAILED", message: "Could not load OTA updates" },
         meta,
@@ -52,6 +54,10 @@ export const otaUpdatesController = {
 
     const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
     if (!contentType.includes("multipart/form-data")) {
+      otaApiLogger.warn("upload", "invalid_content_type", {
+        projectId,
+        contentType: contentType.slice(0, 80),
+      });
       return apiFailure(
         {
           code: "INVALID_CONTENT_TYPE",
@@ -66,7 +72,11 @@ export const otaUpdatesController = {
     let form: FormData;
     try {
       form = await request.formData();
-    } catch {
+    } catch (err) {
+      otaApiLogger.warn("upload", "invalid_form_parse", {
+        projectId,
+        error: errMessage(err),
+      });
       return apiFailure(
         {
           code: "INVALID_FORM",
@@ -87,12 +97,21 @@ export const otaUpdatesController = {
       return apiSuccess({ update, created }, meta, { status: created ? 201 : 200 });
     } catch (err) {
       if (err instanceof OtaUploadError) {
+        otaApiLogger.warn("upload", "upload_validation_failed", {
+          projectId,
+          code: err.code,
+          httpStatus: err.httpStatus,
+        });
         return apiFailure(
           { code: err.code, message: err.message },
           meta,
           { status: err.httpStatus },
         );
       }
+      otaApiLogger.error("upload", "upload_unexpected_error", {
+        projectId,
+        error: errMessage(err),
+      });
       return apiFailure(
         { code: "OTA_UPLOAD_FAILED", message: "Could not store OTA update" },
         meta,
@@ -112,7 +131,8 @@ export const otaUpdatesController = {
     let body: unknown;
     try {
       body = await request.json();
-    } catch {
+    } catch (err) {
+      otaApiLogger.warn("check", "invalid_json", { error: errMessage(err) });
       return apiFailure(
         { code: "INVALID_JSON", message: "Expected JSON body" },
         meta,
@@ -140,6 +160,10 @@ export const otaUpdatesController = {
       platform = parsePlatform(platformRaw);
       env = parseEnv(envRaw);
     } catch {
+      otaApiLogger.warn("check", "invalid_platform_or_env", {
+        platform: platformRaw,
+        env: envRaw,
+      });
       return apiFailure(
         { code: "INVALID_BODY", message: "Invalid platform or env" },
         meta,
@@ -160,7 +184,13 @@ export const otaUpdatesController = {
         projectKey: project.projectKey,
       });
       return apiSuccess(data, meta);
-    } catch {
+    } catch (err) {
+      otaApiLogger.error("check", "check_failed", {
+        projectId: project.id,
+        platform: platformRaw,
+        env: envRaw,
+        error: errMessage(err),
+      });
       return apiFailure(
         { code: "OTA_CHECK_FAILED", message: "Could not check for updates" },
         meta,

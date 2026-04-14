@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { buildMeta, createApiContext } from "@/lib/api/context";
 import { apiFailure } from "@/lib/api/response";
 import { parseEnv, parsePlatform } from "@/server/services/build-upload.service";
+import { errMessage, otaApiLogger } from "@/server/services/ota-api-logger";
 import { requireOtaPublicProjectAndClient } from "@/server/services/ota-public-auth";
 import { otaUpdateService } from "@/server/services/ota-update.service";
 import { fromStorageRelative } from "@/server/storage/project-storage";
@@ -19,6 +20,7 @@ export const otaDownloadController = {
     const target = (url.searchParams.get("target") ?? "bundle").trim().toLowerCase();
 
     if (!version) {
+      otaApiLogger.warn("download", "version_required", { projectId });
       return apiFailure(
         { code: "VERSION_REQUIRED", message: "Query version is required" },
         meta,
@@ -38,6 +40,11 @@ export const otaDownloadController = {
       platform = parsePlatform(platformRaw);
       env = parseEnv(envRaw);
     } catch {
+      otaApiLogger.warn("download", "invalid_platform_or_env", {
+        projectId,
+        platform: platformRaw,
+        env: envRaw,
+      });
       return apiFailure(
         { code: "INVALID_QUERY", message: "Invalid platform or env" },
         meta,
@@ -52,6 +59,12 @@ export const otaDownloadController = {
       version,
     });
     if (!update || !update.active) {
+      otaApiLogger.warn("download", "ota_not_found", {
+        projectId,
+        version,
+        platform: platformRaw,
+        env: envRaw,
+      });
       return apiFailure(
         { code: "OTA_NOT_FOUND", message: "OTA update not found" },
         meta,
@@ -76,6 +89,11 @@ export const otaDownloadController = {
         const nameRaw = url.searchParams.get("name") ?? "";
         const name = decodeURIComponent(nameRaw).replace(/\\/g, "/");
         if (!name || name.includes("..")) {
+          otaApiLogger.warn("download", "invalid_asset_name", {
+            projectId,
+            version,
+            namePreview: nameRaw.slice(0, 120),
+          });
           return apiFailure(
             { code: "INVALID_ASSET_NAME", message: "Invalid asset name" },
             meta,
@@ -85,6 +103,11 @@ export const otaDownloadController = {
         const base = fromStorageRelative(update.assetsPath);
         const resolved = path.resolve(base, name);
         if (!resolved.startsWith(path.resolve(base))) {
+          otaApiLogger.warn("download", "invalid_asset_path", {
+            projectId,
+            version,
+            namePreview: name.slice(0, 120),
+          });
           return apiFailure(
             { code: "INVALID_ASSET_PATH", message: "Invalid asset path" },
             meta,
@@ -101,12 +124,19 @@ export const otaDownloadController = {
         });
       }
 
+      otaApiLogger.warn("download", "invalid_target", { target, projectId, version });
       return apiFailure(
         { code: "INVALID_TARGET", message: "target must be bundle or asset" },
         meta,
         { status: 400 },
       );
-    } catch {
+    } catch (err) {
+      otaApiLogger.error("download", "read_failed", {
+        projectId,
+        version,
+        target,
+        error: errMessage(err),
+      });
       return apiFailure(
         { code: "FILE_NOT_FOUND", message: "OTA file not found" },
         meta,

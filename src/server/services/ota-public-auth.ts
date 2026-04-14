@@ -5,6 +5,7 @@ import { apiFailure } from "@/lib/api/response";
 import { isValidSessionClientId } from "@/lib/auth/client-id-format";
 import type { Project } from "@/server/models/project.model";
 import type { User } from "@/server/models/user.model";
+import { otaApiLogger } from "@/server/services/ota-api-logger";
 import { projectService } from "@/server/services/project.service";
 import { userService } from "@/server/services/user.service";
 
@@ -40,6 +41,9 @@ export async function requireOtaPublicProjectAndClient(
   const meta = buildMeta(ctx);
   const projectId = projectIdRaw.trim();
   if (!PROJECT_ID_RE.test(projectId)) {
+    otaApiLogger.warn("public-auth", "invalid_project_id", {
+      projectIdPreview: projectIdRaw.slice(0, 40),
+    });
     return {
       ok: false,
       response: apiFailure(
@@ -51,6 +55,10 @@ export async function requireOtaPublicProjectAndClient(
   }
   const headerClientId = request.headers.get(CLIENT_ID_HEADER)?.trim() ?? "";
   if (!isValidSessionClientId(headerClientId)) {
+    otaApiLogger.warn("public-auth", "invalid_client_id", {
+      projectId,
+      hasHeader: Boolean(headerClientId),
+    });
     return {
       ok: false,
       response: apiFailure(
@@ -65,6 +73,7 @@ export async function requireOtaPublicProjectAndClient(
   }
   const project = await projectService.findById(projectId);
   if (!project || !project.active) {
+    otaApiLogger.warn("public-auth", "project_not_found", { projectId });
     return {
       ok: false,
       response: apiFailure(
@@ -76,6 +85,10 @@ export async function requireOtaPublicProjectAndClient(
   }
   const actor = await userService.findById(project.createdBy);
   if (!actor?.active || !clientIdsMatch(actor.clientId, headerClientId)) {
+    otaApiLogger.warn("public-auth", "forbidden_client_mismatch", {
+      projectId,
+      actorActive: actor?.active ?? false,
+    });
     return {
       ok: false,
       response: apiFailure(
