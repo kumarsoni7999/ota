@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { gunzipSync } from "node:zlib";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import type { BuildEnv, BuildPlatform } from "@/server/models/build.model";
 import type { OtaUpdate, OtaUpdateMetadata } from "@/server/models/ota-update.model";
 import type { Project } from "@/server/models/project.model";
@@ -136,7 +136,7 @@ function safeAssetFileName(index: number, rawName: string): string {
 async function writeAssets(
   assetsDir: string,
   files: File[],
-  compression: "identity" | "gzip",
+  compression: "identity" | "gzip" | "br",
 ): Promise<void> {
   await mkdir(assetsDir, { recursive: true });
   const assetLimit = maxOtaAssetBytes();
@@ -163,25 +163,36 @@ function parseEnvValue(form: FormData): BuildEnv {
   return parseEnv(requireString(form, "env"));
 }
 
-function parseCompression(form: FormData, key: string): "identity" | "gzip" {
+function parseCompression(form: FormData, key: string): "identity" | "gzip" | "br" {
   const raw = optionalString(form, key);
   if (!raw) {
     return "identity";
   }
   const v = raw.toLowerCase();
-  if (v === "identity" || v === "gzip") {
+  if (v === "identity" || v === "gzip" || v === "br") {
     return v;
   }
-  throw new OtaUploadError("INVALID_COMPRESSION", `${key} must be "identity" or "gzip"`);
+  throw new OtaUploadError("INVALID_COMPRESSION", `${key} must be "identity", "gzip" or "br"`);
 }
 
 async function fileBufferWithCompression(
   file: File,
-  compression: "identity" | "gzip",
+  compression: "identity" | "gzip" | "br",
 ): Promise<Buffer> {
   const raw = Buffer.from(await file.arrayBuffer());
   if (compression === "identity") {
     return raw;
+  }
+  if (compression === "br") {
+    try {
+      return brotliDecompressSync(raw);
+    } catch {
+      throw new OtaUploadError(
+        "INVALID_COMPRESSED_FILE",
+        `Could not brotli-decompress uploaded file "${file.name || "bundle"}"`,
+        400,
+      );
+    }
   }
   try {
     return gunzipSync(raw);
