@@ -266,16 +266,25 @@ export const otaUploadService = {
       );
     }
 
+    const existing = await otaUpdateService.findByReleaseSlot({
+      projectId: project.id,
+      env,
+      platform,
+      version,
+    });
     const nextBuildNumber = await nextBuildNumberForSlot({
       projectId: project.id,
       env,
       platform,
       version,
     });
-    const buildNumber = parseBuildNumber(form, nextBuildNumber);
+    const buildNumber = parseBuildNumber(
+      form,
+      existing?.buildNumber ?? nextBuildNumber,
+    );
 
     const now = new Date().toISOString();
-    const id = randomUUID();
+    const id = existing?.id ?? randomUUID();
 
     const metadata: OtaUpdateMetadata = {};
     if (mandatory !== undefined) {
@@ -291,8 +300,8 @@ export const otaUploadService = {
       metadata.releaseNotes = releaseNotes;
     }
 
-    // Keep each publish in isolated storage so previous OTA entries remain intact.
-    const storageVersion = `${version}__b${buildNumber}`;
+    // Use stable release slot storage (project + env + platform + version), same as build upsert style.
+    const storageVersion = version;
     const uploadingEntry: OtaUpdate = {
       id,
       projectId: project.id,
@@ -303,9 +312,9 @@ export const otaUploadService = {
       bundlePath: otaBundleStorageRef(project.projectKey, platform, env, storageVersion),
       assetsPath: otaAssetsStorageRef(project.projectKey, platform, env, storageVersion),
       metadata,
-      createdBy: userId,
+      createdBy: existing?.createdBy ?? userId,
       updatedBy: userId,
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       active: false,
       uploadState: "UPLOADING",
@@ -333,7 +342,7 @@ export const otaUploadService = {
         uploadError: undefined,
       };
       await otaUpdateService.save(next);
-      return { update: next, created: true };
+      return { update: next, created: !existing };
     } catch (err) {
       const failed: OtaUpdate = {
         ...uploadingEntry,

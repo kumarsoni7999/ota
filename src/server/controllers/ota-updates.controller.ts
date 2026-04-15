@@ -10,6 +10,81 @@ import { requireOtaPublicProjectAndClient } from "@/server/services/ota-public-a
 import { OtaUploadError, otaUploadService } from "@/server/services/ota-upload.service";
 
 export const otaUpdatesController = {
+  async uploadForProject(request: Request, projectId: string) {
+    const auth = await requireOtaPublicProjectAndClient(request, projectId.trim());
+    if (!auth.ok) {
+      return auth.response;
+    }
+    const { project, actor, meta } = auth;
+
+    const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
+    if (!contentType.includes("multipart/form-data")) {
+      otaApiLogger.warn("upload", "invalid_content_type", {
+        projectId: project.id,
+        contentType: contentType.slice(0, 80),
+      });
+      return apiFailure(
+        {
+          code: "INVALID_CONTENT_TYPE",
+          message:
+            'Expected multipart/form-data with fields: version, env, platform, bundle (or file/jsBundle), optional assets[]',
+        },
+        meta,
+        { status: 400 },
+      );
+    }
+
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch (err) {
+      otaApiLogger.warn("upload", "invalid_form_parse", {
+        projectId: project.id,
+        error: errMessage(err),
+      });
+      return apiFailure(
+        {
+          code: "INVALID_FORM",
+          message:
+            "Could not parse multipart form data. Do not set Content-Type manually; let your HTTP client set multipart boundary.",
+        },
+        meta,
+        { status: 400 },
+      );
+    }
+
+    try {
+      const { update, created } = await otaUploadService.saveFromMultipart({
+        project,
+        userId: actor.id,
+        form,
+      });
+      return apiSuccess({ update, created }, meta, { status: created ? 201 : 200 });
+    } catch (err) {
+      if (err instanceof OtaUploadError) {
+        otaApiLogger.warn("upload", "upload_validation_failed", {
+          projectId: project.id,
+          code: err.code,
+          httpStatus: err.httpStatus,
+        });
+        return apiFailure(
+          { code: err.code, message: err.message },
+          meta,
+          { status: err.httpStatus },
+        );
+      }
+      otaApiLogger.error("upload", "upload_unexpected_error", {
+        projectId: project.id,
+        error: errMessage(err),
+      });
+      return apiFailure(
+        { code: "OTA_UPLOAD_FAILED", message: "Could not store OTA update" },
+        meta,
+        { status: 500 },
+      );
+    }
+  },
+
   async get(request: Request) {
     const ctx = createApiContext(request);
     const meta = buildMeta(ctx);
@@ -69,82 +144,9 @@ export const otaUpdatesController = {
    * Requires query `projectId` + `X-Client-Id` matching project owner.
    */
   async post(request: Request) {
-    const ctx = createApiContext(request);
-    const meta = buildMeta(ctx);
     const url = new URL(request.url);
     const projectId = url.searchParams.get("projectId")?.trim() ?? "";
-    const auth = await requireOtaPublicProjectAndClient(request, projectId);
-    if (!auth.ok) {
-      return auth.response;
-    }
-    const { project, actor } = auth;
-
-    const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
-    if (!contentType.includes("multipart/form-data")) {
-      otaApiLogger.warn("upload", "invalid_content_type", {
-        projectId,
-        contentType: contentType.slice(0, 80),
-      });
-      return apiFailure(
-        {
-          code: "INVALID_CONTENT_TYPE",
-          message:
-            'Expected multipart/form-data with fields: version, env, platform, bundle (or file/jsBundle), optional assets[]',
-        },
-        meta,
-        { status: 400 },
-      );
-    }
-
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch (err) {
-      otaApiLogger.warn("upload", "invalid_form_parse", {
-        projectId,
-        error: errMessage(err),
-      });
-      return apiFailure(
-        {
-          code: "INVALID_FORM",
-          message:
-            "Could not parse multipart form data. Do not set Content-Type manually; let your HTTP client set multipart boundary.",
-        },
-        meta,
-        { status: 400 },
-      );
-    }
-
-    try {
-      const { update, created } = await otaUploadService.saveFromMultipart({
-        project,
-        userId: actor.id,
-        form,
-      });
-      return apiSuccess({ update, created }, meta, { status: created ? 201 : 200 });
-    } catch (err) {
-      if (err instanceof OtaUploadError) {
-        otaApiLogger.warn("upload", "upload_validation_failed", {
-          projectId,
-          code: err.code,
-          httpStatus: err.httpStatus,
-        });
-        return apiFailure(
-          { code: err.code, message: err.message },
-          meta,
-          { status: err.httpStatus },
-        );
-      }
-      otaApiLogger.error("upload", "upload_unexpected_error", {
-        projectId,
-        error: errMessage(err),
-      });
-      return apiFailure(
-        { code: "OTA_UPLOAD_FAILED", message: "Could not store OTA update" },
-        meta,
-        { status: 500 },
-      );
-    }
+    return this.uploadForProject(request, projectId);
   },
 
   /**
