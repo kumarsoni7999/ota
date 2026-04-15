@@ -6,10 +6,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
   experimental: {
     /**
-     * `/src/proxy.ts` runs on `/api/*`; large multipart uploads (apk/aab) can
-     * exceed the default 10MB body budget and get truncated before handlers.
+     * `/src/proxy.ts` runs on `/api/*`; large multipart uploads (OTA/APK) can
+     * exceed the default body budget and fail before route handlers.
+     * Next 16+: `middlewareClientMaxBodySize` was renamed to `proxyClientMaxBodySize`.
      */
-    middlewareClientMaxBodySize: "500mb",
+    proxyClientMaxBodySize: "500mb",
   },
 };
 
