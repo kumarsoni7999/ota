@@ -1,11 +1,15 @@
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import type { OtaUpdate } from "@/server/models/ota-update.model";
 import {
+  deleteJsonRecord,
   readJsonRecord,
   readAllJsonRecords,
   sortByCreatedAtDesc,
   writeJsonRecord,
 } from "@/server/services/json-dir.store";
 import { projectService } from "@/server/services/project.service";
+import { fromStorageRelative } from "@/server/storage/project-storage";
 
 export const otaUpdateService = {
   async listAll(): Promise<OtaUpdate[]> {
@@ -59,6 +63,15 @@ export const otaUpdateService = {
     };
     await this.save(next);
     return next;
+  },
+
+  async deletePermanently(update: OtaUpdate): Promise<void> {
+    // Bundle path points to ".../<version>/index.bundle"; delete that whole version dir.
+    await rm(path.dirname(fromStorageRelative(update.bundlePath)), {
+      recursive: true,
+      force: true,
+    });
+    await deleteJsonRecord("ota-updates", update.id);
   },
 
   /** Latest active OTA row for a project + platform + channel (env). */

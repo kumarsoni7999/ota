@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { useDashboardClientId } from "@/components/dashboard/DashboardAuthContext";
 import { DashboardPaginationBar } from "@/components/dashboard/DashboardPaginationBar";
 import { DashboardSortHeaderLink } from "@/components/dashboard/DashboardSortHeaderLink";
+import { DashboardToast } from "@/components/dashboard/DashboardToast";
+import { CLIENT_ID_HEADER } from "@/lib/api/client-id-header";
 import { ModuleEmptyState } from "@/components/dashboard/ModuleEmptyState";
 import type { SortOrder } from "@/lib/dashboard/sort-order";
 import type { OtaUpdate } from "@/server/models/ota-update.model";
+import { useRouter } from "next/navigation";
 
 export type UpdatesListMeta = {
   pathname: string;
@@ -26,6 +31,9 @@ type Props = {
   projectNames: Record<string, string>;
   listMeta: UpdatesListMeta;
 };
+
+type ApiSuccess<T> = { success: true; data: T };
+type ApiFailure = { success: false; error: { code: string; message: string } };
 
 function uploadStatusLabel(u: OtaUpdate): string {
   if (u.uploadState === "UPLOADING") {
@@ -52,7 +60,16 @@ function formatBytes(bytes?: number): string {
 }
 
 export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
+  const clientId = useDashboardClientId();
+  const router = useRouter();
   const [selected, setSelected] = useState<(OtaUpdate & { fileSizeBytes?: number }) | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<OtaUpdate | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [toast, setToast] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+  const dismissToast = useCallback(() => setToast(null), []);
   const {
     pathname,
     queryString,
@@ -69,8 +86,44 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
 
   const qs = queryString;
 
+  async function runDelete(updateId: string) {
+    const res = await fetch(`/api/ota-updates/${updateId}`, {
+      method: "DELETE",
+      headers: { [CLIENT_ID_HEADER]: clientId },
+      credentials: "same-origin",
+    });
+    const json = (await res.json()) as ApiSuccess<{ ok: boolean }> | ApiFailure;
+    if (!json.success) {
+      setToast({ kind: "error", text: json.error.message });
+      return false;
+    }
+    setToast({ kind: "success", text: "OTA update deleted permanently." });
+    router.refresh();
+    return true;
+  }
+
+  async function onConfirmDelete() {
+    if (!confirmDelete) {
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      await runDelete(confirmDelete.id);
+    } finally {
+      setDeleteLoading(false);
+      setConfirmDelete(null);
+    }
+  }
+
   return (
     <div className="w-full min-w-0">
+      {toast ? (
+        <DashboardToast
+          message={toast.text}
+          kind={toast.kind}
+          onDismiss={dismissToast}
+        />
+      ) : null}
       <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
         OTA updates
       </h1>
@@ -198,7 +251,7 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                     <th className="px-4 py-3 font-semibold tracking-wide">
                       Upload
                     </th>
-                    <th className="px-4 py-3 font-semibold tracking-wide">Details</th>
+                    <th className="px-4 py-3 font-semibold tracking-wide">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -241,13 +294,24 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
                         {uploadStatusLabel(u)}
                       </td>
                       <td>
-                        <button
-                          type="button"
-                          onClick={() => setSelected(u)}
-                          className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                        >
-                          View
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelected(u)}
+                            className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDelete(u)}
+                            title="Delete OTA update permanently"
+                            aria-label="Delete OTA update permanently"
+                            className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:text-red-300 dark:hover:bg-red-950/40"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -302,6 +366,24 @@ export function UpdatesClientView({ rows, projectNames, listMeta }: Props) {
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        confirming={deleteLoading}
+        title="Delete OTA update permanently?"
+        description={
+          confirmDelete
+            ? `This will permanently remove OTA ${confirmDelete.version} (build #${confirmDelete.buildNumber ?? 1}) and its stored files. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete permanently"
+        variant="danger"
+        onCancel={() => {
+          if (!deleteLoading) {
+            setConfirmDelete(null);
+          }
+        }}
+        onConfirm={onConfirmDelete}
+      />
     </div>
   );
 }

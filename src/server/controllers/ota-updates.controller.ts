@@ -8,8 +8,76 @@ import { otaCheckService } from "@/server/services/ota-check.service";
 import { otaUpdateService } from "@/server/services/ota-update.service";
 import { requireOtaPublicProjectAndClient } from "@/server/services/ota-public-auth";
 import { OtaUploadError, otaUploadService } from "@/server/services/ota-upload.service";
+import { projectService } from "@/server/services/project.service";
+import { userService } from "@/server/services/user.service";
+
+const OTA_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const otaUpdatesController = {
+  async deleteById(request: Request, id: string) {
+    const ctx = createApiContext(request);
+    const meta = buildMeta(ctx);
+    const otaId = id.trim();
+    if (!OTA_ID_RE.test(otaId)) {
+      return apiFailure(
+        { code: "INVALID_OTA_ID", message: "Invalid OTA update id" },
+        meta,
+        { status: 400 },
+      );
+    }
+
+    const auth = requireApiSessionWithClient(request, meta);
+    if (!auth.ok) {
+      return auth.response;
+    }
+
+    const actor = await userService.findById(auth.session.sub);
+    if (!actor?.active) {
+      return apiFailure(
+        { code: "UNAUTHORIZED", message: "Sign in to delete OTA updates" },
+        meta,
+        { status: 401 },
+      );
+    }
+
+    const update = await otaUpdateService.findById(otaId);
+    if (!update) {
+      return apiFailure(
+        { code: "OTA_NOT_FOUND", message: "OTA update not found" },
+        meta,
+        { status: 404 },
+      );
+    }
+
+    const project = await projectService.findById(update.projectId);
+    if (!project) {
+      return apiFailure(
+        { code: "PROJECT_NOT_FOUND", message: "Project not found" },
+        meta,
+        { status: 404 },
+      );
+    }
+    if (project.createdBy !== actor.id) {
+      return apiFailure(
+        { code: "FORBIDDEN", message: "You can only delete your own OTA updates" },
+        meta,
+        { status: 403 },
+      );
+    }
+
+    try {
+      await otaUpdateService.deletePermanently(update);
+      return apiSuccess({ ok: true as const }, meta);
+    } catch {
+      return apiFailure(
+        { code: "OTA_DELETE_FAILED", message: "Could not delete OTA update" },
+        meta,
+        { status: 500 },
+      );
+    }
+  },
+
   async uploadForProject(request: Request, projectId: string) {
     const auth = await requireOtaPublicProjectAndClient(request, projectId.trim());
     if (!auth.ok) {
