@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import type { BuildEnv, BuildPlatform } from "@/server/models/build.model";
@@ -266,25 +266,16 @@ export const otaUploadService = {
       );
     }
 
-    const existing = await otaUpdateService.findByReleaseSlot({
-      projectId: project.id,
-      env,
-      platform,
-      version,
-    });
     const nextBuildNumber = await nextBuildNumberForSlot({
       projectId: project.id,
       env,
       platform,
       version,
     });
-    const buildNumber = parseBuildNumber(
-      form,
-      existing?.buildNumber ?? nextBuildNumber,
-    );
+    const buildNumber = parseBuildNumber(form, nextBuildNumber);
 
     const now = new Date().toISOString();
-    const id = existing?.id ?? randomUUID();
+    const id = randomUUID();
 
     const metadata: OtaUpdateMetadata = {};
     if (mandatory !== undefined) {
@@ -300,8 +291,8 @@ export const otaUploadService = {
       metadata.releaseNotes = releaseNotes;
     }
 
-    // Use stable release slot storage (project + env + platform + version), same as build upsert style.
-    const storageVersion = version;
+    // Store each upload under a unique directory so older updates remain downloadable.
+    const storageVersion = `${version}__${id}`;
     const uploadingEntry: OtaUpdate = {
       id,
       projectId: project.id,
@@ -312,9 +303,9 @@ export const otaUploadService = {
       bundlePath: otaBundleStorageRef(project.projectKey, platform, env, storageVersion),
       assetsPath: otaAssetsStorageRef(project.projectKey, platform, env, storageVersion),
       metadata,
-      createdBy: existing?.createdBy ?? userId,
+      createdBy: userId,
       updatedBy: userId,
-      createdAt: existing?.createdAt ?? now,
+      createdAt: now,
       updatedAt: now,
       active: false,
       uploadState: "UPLOADING",
@@ -325,7 +316,6 @@ export const otaUploadService = {
 
     try {
       const versionDir = otaVersionDir(project.projectKey, platform, env, storageVersion);
-      await rm(versionDir, { recursive: true, force: true });
       await mkdir(versionDir, { recursive: true });
 
       const bundleAbs = otaBundleAbsolutePath(project.projectKey, platform, env, storageVersion);
@@ -342,7 +332,7 @@ export const otaUploadService = {
         uploadError: undefined,
       };
       await otaUpdateService.save(next);
-      return { update: next, created: !existing };
+      return { update: next, created: true };
     } catch (err) {
       const failed: OtaUpdate = {
         ...uploadingEntry,

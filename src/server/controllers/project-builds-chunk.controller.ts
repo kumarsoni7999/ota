@@ -157,7 +157,11 @@ export const projectBuildsChunkController = {
           userId,
           body,
         });
-        return apiSuccess({ build }, meta, { status: 201 });
+        return apiSuccess(
+          { success: true, id: build.id, build },
+          meta,
+          { status: 201 },
+        );
       }
 
       const buildId = url.searchParams.get("buildId")?.trim() ?? "";
@@ -178,7 +182,7 @@ export const projectBuildsChunkController = {
           userId,
           buildId,
         });
-        return apiSuccess({ build }, meta);
+        return apiSuccess({ success: true, id: build.id, build }, meta);
       }
 
       const raw =
@@ -214,7 +218,7 @@ export const projectBuildsChunkController = {
         chunkIndex,
         body: buf,
       });
-      return apiSuccess({ build }, meta);
+      return apiSuccess({ success: true, id: build.id, build }, meta);
     } catch (err) {
       if (err instanceof BuildUploadError) {
         return apiFailure(

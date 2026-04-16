@@ -91,7 +91,11 @@ export const otaUpdateService = {
     if (matching.length === 0) {
       return null;
     }
-    matching.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    // "Latest" should mean most recently created update (ties by updatedAt).
+    matching.sort((a, b) => {
+      const c = b.createdAt.localeCompare(a.createdAt);
+      return c !== 0 ? c : b.updatedAt.localeCompare(a.updatedAt);
+    });
     return matching[0] ?? null;
   },
 };

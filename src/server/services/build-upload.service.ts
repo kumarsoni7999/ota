@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BuildManifestV1 } from "@/server/models/build-manifest.model";
 import { BUILD_MANIFEST_FILENAME } from "@/server/models/build-manifest.model";
@@ -16,7 +16,6 @@ import {
   buildArtifactAbsolutePath,
   buildFileStorageRef,
   buildVersionDir,
-  fromStorageRelative,
 } from "@/server/storage/project-storage";
 
 const DEFAULT_MAX_BYTES = 500 * 1024 * 1024;
@@ -158,22 +157,11 @@ function parseBuildNumber(form: FormData): number {
   return n;
 }
 
-async function safeUnlinkStorageRelative(relPosix: string): Promise<void> {
-  try {
-    await unlink(fromStorageRelative(relPosix));
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw e;
-    }
-  }
-}
-
 export const buildUploadService = {
   /**
    * Writes the native artifact under `storage/projects/<key>/builds/.../<version>/`
    * plus `build-manifest.json` (OTA-style metadata for tooling / JS update flows).
-   * Upserts when the same project/env/platform/type/version/buildNumber exists.
+   * Always creates a new build record + unique storage directory per upload.
    */
   async saveFromMultipart(params: {
     project: Project;
@@ -215,11 +203,14 @@ export const buildUploadService = {
     const artifactFilename = `${base}${extForArtifactType(type)}`;
     const versionTrim = version.trim();
 
+    const id = randomUUID();
+    const storageVersion = `${versionTrim}__${id}`;
+
     const dirAbs = buildVersionDir(
       project.projectKey,
       platform,
       env,
-      versionTrim,
+      storageVersion,
     );
     await mkdir(dirAbs, { recursive: true });
 
@@ -227,7 +218,7 @@ export const buildUploadService = {
       project.projectKey,
       platform,
       env,
-      versionTrim,
+      storageVersion,
       artifactFilename,
     );
 
@@ -235,22 +226,9 @@ export const buildUploadService = {
       project.projectKey,
       platform,
       env,
-      versionTrim,
+      storageVersion,
       artifactFilename,
     );
-
-    const existing = await buildService.findByReleaseSlot({
-      projectId: project.id,
-      env,
-      version: versionTrim,
-      buildNumber,
-      platform,
-      type,
-    });
-
-    if (existing && existing.filePath !== newFilePath) {
-      await safeUnlinkStorageRelative(existing.filePath);
-    }
 
     await writeFile(artifactAbs, buffer);
     const filePath = newFilePath;
@@ -263,7 +241,6 @@ export const buildUploadService = {
     const runtimeVersion = optionalString(form, "runtimeVersion");
 
     const metadata: BuildMetadata = {
-      ...(existing?.metadata ?? {}),
       displayName: name,
     };
     if (runtimeVersion !== undefined) {
@@ -282,45 +259,23 @@ export const buildUploadService = {
       metadata.minSupportedVersion = minSupportedVersion;
     }
 
-    let build: Build;
-    let created: boolean;
-
-    if (existing) {
-      created = false;
-      build = {
-        ...existing,
-        version: versionTrim,
-        buildNumber,
-        filePath,
-        metadata,
-        updatedAt: now,
-        updatedBy: userId,
-        active: true,
-        uploadStatus: "success",
-        uploadExpectedBytes: undefined,
-        uploadExpectedChunks: undefined,
-        uploadReceivedBytes: undefined,
-      };
-    } else {
-      created = true;
-      build = {
-        id: randomUUID(),
-        projectId: project.id,
-        env,
-        version: versionTrim,
-        buildNumber,
-        type,
-        platform,
-        filePath,
-        metadata,
-        createdBy: userId,
-        updatedBy: userId,
-        createdAt: now,
-        updatedAt: now,
-        active: true,
-        uploadStatus: "success",
-      };
-    }
+    const build: Build = {
+      id,
+      projectId: project.id,
+      env,
+      version: versionTrim,
+      buildNumber,
+      type,
+      platform,
+      filePath,
+      metadata,
+      createdBy: userId,
+      updatedBy: userId,
+      createdAt: now,
+      updatedAt: now,
+      active: true,
+      uploadStatus: "success",
+    };
 
     const manifest: BuildManifestV1 = {
       schemaVersion: 1,
@@ -343,7 +298,7 @@ export const buildUploadService = {
     };
 
     const manifestAbs = path.join(
-      buildVersionDir(project.projectKey, platform, env, versionTrim),
+      buildVersionDir(project.projectKey, platform, env, storageVersion),
       BUILD_MANIFEST_FILENAME,
     );
     await writeFile(
@@ -353,6 +308,6 @@ export const buildUploadService = {
     );
 
     await buildService.save(build);
-    return { build, created };
+    return { build, created: true };
   },
 };

@@ -4,7 +4,6 @@ import { BUILD_MANIFEST_FILENAME } from "@/server/models/build-manifest.model";
 import type { Build, BuildUploadStatus } from "@/server/models/build.model";
 import {
   buildPendingUploadDirAbs,
-  buildVersionDir,
   fromStorageRelative,
 } from "@/server/storage/project-storage";
 import {
@@ -119,7 +118,7 @@ export const buildService = {
     try {
       await unlink(
         path.join(
-          buildVersionDir(projectKey, build.platform, build.env, build.version),
+          path.dirname(fromStorageRelative(build.filePath)),
           BUILD_MANIFEST_FILENAME,
         ),
       );

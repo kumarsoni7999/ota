@@ -6,7 +6,7 @@ import {
   otaUpdateFingerprint,
 } from "@/server/services/ota-fingerprint";
 import { otaUpdateService } from "@/server/services/ota-update.service";
-import { otaAssetsAbsoluteDir } from "@/server/storage/project-storage";
+import { fromStorageRelative } from "@/server/storage/project-storage";
 
 async function walkAssetRelPaths(
   dirAbs: string,
@@ -65,8 +65,8 @@ function downloadQuery(u: OtaUpdate): string {
 
 export const otaCheckService = {
   async listAssetRelativePaths(u: OtaUpdate, projectKey: string): Promise<string[]> {
-    const dir = otaAssetsAbsoluteDir(projectKey, u.platform, u.env, u.version);
-    return walkAssetRelPaths(dir);
+    void projectKey; // kept for backwards compatibility of callsites
+    return walkAssetRelPaths(fromStorageRelative(u.assetsPath));
   },
 
   async buildCheckPayload(params: {

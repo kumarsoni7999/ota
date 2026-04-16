@@ -5,12 +5,7 @@ import path from "node:path";
 import { finished, pipeline } from "node:stream/promises";
 import type { BuildManifestV1 } from "@/server/models/build-manifest.model";
 import { BUILD_MANIFEST_FILENAME } from "@/server/models/build-manifest.model";
-import type {
-  Build,
-  BuildEnv,
-  BuildMetadata,
-  BuildPlatform,
-} from "@/server/models/build.model";
+import type { Build, BuildMetadata } from "@/server/models/build.model";
 import type { Project } from "@/server/models/project.model";
 import { buildService } from "@/server/services/build.service";
 import {
@@ -29,7 +24,6 @@ import {
   buildPendingPlaceholderStorageRef,
   buildPendingUploadDirAbs,
   buildVersionDir,
-  fromStorageRelative,
 } from "@/server/storage/project-storage";
 
 const MAX_CHUNKS = 50_000;
@@ -79,56 +73,6 @@ function mergeMetadataFromInit(
     metadata.minSupportedVersion = minSupportedVersion;
   }
   return metadata;
-}
-
-async function safeUnlinkStorageRelative(relPosix: string): Promise<void> {
-  try {
-    await unlink(fromStorageRelative(relPosix));
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw e;
-    }
-  }
-}
-
-async function removeManifestBesideArtifact(
-  projectKey: string,
-  platform: BuildPlatform,
-  env: BuildEnv,
-  version: string,
-): Promise<void> {
-  const manifestAbs = path.join(
-    buildVersionDir(projectKey, platform, env, version),
-    BUILD_MANIFEST_FILENAME,
-  );
-  try {
-    await unlink(manifestAbs);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw e;
-    }
-  }
-}
-
-async function cleanupPriorBuildState(
-  project: Project,
-  existing: Build,
-): Promise<void> {
-  await rm(buildPendingUploadDirAbs(project.projectKey, existing.id), {
-    recursive: true,
-    force: true,
-  });
-  if (existing.uploadStatus === "success" && existing.filePath) {
-    await safeUnlinkStorageRelative(existing.filePath);
-    await removeManifestBesideArtifact(
-      project.projectKey,
-      existing.platform,
-      existing.env,
-      existing.version,
-    );
-  }
 }
 
 export type ChunkInitBody = {
@@ -240,70 +184,33 @@ export const buildChunkUploadService = {
     const platform = parsePlatform(body.platform);
     const type = parseType(body.type);
 
-    const existing = await buildService.findByReleaseSlot({
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const metadata = mergeMetadataFromInit(
+      undefined,
+      name,
+      body as unknown as Record<string, unknown>,
+    );
+    const build: Build = {
+      id,
       projectId: project.id,
       env,
       version: versionTrim,
       buildNumber: body.buildNumber,
-      platform,
       type,
-    });
-
-    const now = new Date().toISOString();
-    let build: Build;
-
-    if (existing) {
-      await cleanupPriorBuildState(project, existing);
-      const metadata = mergeMetadataFromInit(
-        existing.metadata,
-        name,
-        body as unknown as Record<string, unknown>,
-      );
-      build = {
-        ...existing,
-        version: versionTrim,
-        buildNumber: body.buildNumber,
-        metadata,
-        uploadStatus: "pending",
-        uploadExpectedBytes: body.totalSize,
-        uploadExpectedChunks: body.totalChunks,
-        uploadReceivedBytes: 0,
-        filePath: buildPendingPlaceholderStorageRef(
-          project.projectKey,
-          existing.id,
-        ),
-        updatedAt: now,
-        updatedBy: userId,
-        active: true,
-      };
-    } else {
-      const id = randomUUID();
-      const metadata = mergeMetadataFromInit(
-        undefined,
-        name,
-        body as unknown as Record<string, unknown>,
-      );
-      build = {
-        id,
-        projectId: project.id,
-        env,
-        version: versionTrim,
-        buildNumber: body.buildNumber,
-        type,
-        platform,
-        filePath: buildPendingPlaceholderStorageRef(project.projectKey, id),
-        metadata,
-        createdBy: userId,
-        updatedBy: userId,
-        createdAt: now,
-        updatedAt: now,
-        active: true,
-        uploadStatus: "pending",
-        uploadExpectedBytes: body.totalSize,
-        uploadExpectedChunks: body.totalChunks,
-        uploadReceivedBytes: 0,
-      };
-    }
+      platform,
+      filePath: buildPendingPlaceholderStorageRef(project.projectKey, id),
+      metadata,
+      createdBy: userId,
+      updatedBy: userId,
+      createdAt: now,
+      updatedAt: now,
+      active: true,
+      uploadStatus: "pending",
+      uploadExpectedBytes: body.totalSize,
+      uploadExpectedChunks: body.totalChunks,
+      uploadReceivedBytes: 0,
+    };
 
     const pendingDir = buildPendingUploadDirAbs(project.projectKey, build.id);
     await rm(pendingDir, { recursive: true, force: true });
@@ -432,18 +339,19 @@ export const buildChunkUploadService = {
     const displayName = build.metadata.displayName ?? "artifact";
     const base = sanitizeArtifactBase(displayName);
     const artifactFilename = `${base}${extForArtifactType(build.type)}`;
+    const storageVersion = `${build.version}__${build.id}`;
     const versionDir = buildVersionDir(
       project.projectKey,
       build.platform,
       build.env,
-      build.version,
+      storageVersion,
     );
     await mkdir(versionDir, { recursive: true });
     const artifactAbs = buildArtifactAbsolutePath(
       project.projectKey,
       build.platform,
       build.env,
-      build.version,
+      storageVersion,
       artifactFilename,
     );
 
@@ -476,7 +384,7 @@ export const buildChunkUploadService = {
       project.projectKey,
       build.platform,
       build.env,
-      build.version,
+      storageVersion,
       artifactFilename,
     );
 

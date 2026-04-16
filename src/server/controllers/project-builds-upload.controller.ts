@@ -109,6 +109,8 @@ export const projectBuildsUploadController = {
       });
       return apiSuccess(
         {
+          success: true,
+          id: build.id,
           build,
           created,
           manifestFile: "build-manifest.json",
