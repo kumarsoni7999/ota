@@ -1,7 +1,7 @@
 import { rm, unlink } from "node:fs/promises";
 import path from "node:path";
 import { BUILD_MANIFEST_FILENAME } from "@/server/models/build-manifest.model";
-import type { Build, BuildUploadStatus } from "@/server/models/build.model";
+import type { Build, BuildArtifactType, BuildUploadStatus } from "@/server/models/build.model";
 import {
   buildPendingUploadDirAbs,
   fromStorageRelative,
@@ -48,6 +48,34 @@ export const buildService = {
   async findById(id: string): Promise<Build | null> {
     const row = await readJsonRecord<Build>("builds", id);
     return row ? normalizeBuildRow(row) : null;
+  },
+
+  /** Next build number for this version line (native artifact type included). */
+  async nextBuildNumberForReleaseSlot(input: {
+    projectId: string;
+    env: Build["env"];
+    platform: Build["platform"];
+    version: string;
+    type: BuildArtifactType;
+  }): Promise<number> {
+    const rows = await this.listAll();
+    let max = 0;
+    const v = input.version.trim();
+    for (const b of rows) {
+      if (
+        b.projectId === input.projectId &&
+        b.env === input.env &&
+        b.platform === input.platform &&
+        b.type === input.type &&
+        b.version === v
+      ) {
+        const n = typeof b.buildNumber === "number" ? b.buildNumber : 0;
+        if (n > max) {
+          max = n;
+        }
+      }
+    }
+    return max + 1;
   },
 
   /**

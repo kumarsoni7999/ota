@@ -38,7 +38,7 @@ const MULTIPART_FIELDS_JSONC = `// Sent as multipart/form-data: each key is a fo
   "env": "DEV",                       // required — DEV | QA | STAGE | PROD
   "platform": "android",              // required — android | ios
   "type": "apk",                      // required — apk | aab | ipa
-  "buildNumber": "42",                // required — positive int string
+  "buildNumber": "42",                // optional — omit to auto-increment per version line
   "runtimeVersion": "1.0.0",          // optional — Expo-style runtime key
   "commitHash": "a1b2c3d4",           // optional
   "branch": "main",                   // optional
@@ -69,7 +69,7 @@ const CHUNK_INIT_JSONC = `{
   "type": "apk",                      // required — apk | aab | ipa
   "totalSize": 5242880,               // required — total bytes of all chunks combined
   "totalChunks": 10,                  // required — how many phase=chunk requests you will send
-  "buildNumber": 42,                  // required — positive integer
+  "buildNumber": 42,                  // optional — omit to auto-increment per version line
   "runtimeVersion": "1.0.0",          // optional
   "commitHash": "a1b2c3d4",           // optional
   "branch": "main",                   // optional

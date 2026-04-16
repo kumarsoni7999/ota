@@ -78,7 +78,8 @@ function mergeMetadataFromInit(
 export type ChunkInitBody = {
   name: string;
   version: string;
-  buildNumber: number;
+  /** Omit to assign the next build number for this version + platform + env + type. */
+  buildNumber?: number;
   env: string;
   platform: string;
   type: string;
@@ -135,21 +136,24 @@ export const buildChunkUploadService = {
         413,
       );
     }
-    const buildNumber = b.buildNumber;
-    if (
-      typeof buildNumber !== "number" ||
-      !Number.isInteger(buildNumber) ||
-      buildNumber < 1
-    ) {
-      throw new BuildUploadError(
-        "INVALID_BUILD_NUMBER",
-        "buildNumber must be a positive integer",
-      );
+    const buildNumberRaw = b.buildNumber;
+    if (buildNumberRaw !== undefined && buildNumberRaw !== null) {
+      if (
+        typeof buildNumberRaw !== "number" ||
+        !Number.isInteger(buildNumberRaw) ||
+        buildNumberRaw < 1
+      ) {
+        throw new BuildUploadError(
+          "INVALID_BUILD_NUMBER",
+          "buildNumber must be a positive integer when provided",
+        );
+      }
     }
     return {
       name,
       version,
-      buildNumber,
+      buildNumber:
+        typeof buildNumberRaw === "number" ? buildNumberRaw : undefined,
       env,
       platform,
       type,
@@ -184,6 +188,15 @@ export const buildChunkUploadService = {
     const platform = parsePlatform(body.platform);
     const type = parseType(body.type);
 
+    const nextBuildNumber = await buildService.nextBuildNumberForReleaseSlot({
+      projectId: project.id,
+      env,
+      platform,
+      version: versionTrim,
+      type,
+    });
+    const buildNumber = body.buildNumber ?? nextBuildNumber;
+
     const now = new Date().toISOString();
     const id = randomUUID();
     const metadata = mergeMetadataFromInit(
@@ -196,7 +209,7 @@ export const buildChunkUploadService = {
       projectId: project.id,
       env,
       version: versionTrim,
-      buildNumber: body.buildNumber,
+      buildNumber,
       type,
       platform,
       filePath: buildPendingPlaceholderStorageRef(project.projectKey, id),

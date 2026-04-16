@@ -139,13 +139,10 @@ function pickFormFile(form: FormData): File {
   );
 }
 
-function parseBuildNumber(form: FormData): number {
+function parseBuildNumber(form: FormData, fallback: number): number {
   const raw = optionalString(form, "buildNumber");
   if (!raw) {
-    throw new BuildUploadError(
-      "FIELD_REQUIRED",
-      'Missing required form field "buildNumber"',
-    );
+    return fallback;
   }
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n < 1) {
@@ -180,10 +177,19 @@ export const buildUploadService = {
 
     const name = requireString(form, "name");
     const version = requireString(form, "version");
-    const buildNumber = parseBuildNumber(form);
+    const versionTrim = version.trim();
     const env = parseEnv(requireString(form, "env"));
     const platform = parsePlatform(requireString(form, "platform"));
     const type = parseType(requireString(form, "type"));
+
+    const nextBuildNumber = await buildService.nextBuildNumberForReleaseSlot({
+      projectId: project.id,
+      env,
+      platform,
+      version: versionTrim,
+      type,
+    });
+    const buildNumber = parseBuildNumber(form, nextBuildNumber);
 
     const file = pickFormFile(form);
     const limit = maxUploadBytes();
@@ -201,7 +207,6 @@ export const buildUploadService = {
 
     const base = sanitizeArtifactBase(name);
     const artifactFilename = `${base}${extForArtifactType(type)}`;
-    const versionTrim = version.trim();
 
     const id = randomUUID();
     const storageVersion = `${versionTrim}__${id}`;

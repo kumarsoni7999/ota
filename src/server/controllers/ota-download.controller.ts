@@ -2,11 +2,20 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { buildMeta, createApiContext } from "@/lib/api/context";
 import { apiFailure } from "@/lib/api/response";
+import type { OtaUpdate } from "@/server/models/ota-update.model";
 import { parseEnv, parsePlatform } from "@/server/services/build-upload.service";
 import { errMessage, otaApiLogger } from "@/server/services/ota-api-logger";
 import { requireOtaPublicProjectAndClient } from "@/server/services/ota-public-auth";
 import { otaUpdateService } from "@/server/services/ota-update.service";
 import { fromStorageRelative } from "@/server/storage/project-storage";
+
+const OTA_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function uploadIsDownloadable(u: OtaUpdate): boolean {
+  const stateOk = u.uploadState === undefined || u.uploadState === "SUCCESS";
+  return stateOk && u.active;
+}
 
 export const otaDownloadController = {
   async get(request: Request) {
@@ -14,15 +23,19 @@ export const otaDownloadController = {
     const meta = buildMeta(ctx);
     const url = new URL(request.url);
     const projectId = url.searchParams.get("projectId")?.trim() ?? "";
+    const updateIdRaw = url.searchParams.get("updateId")?.trim() ?? "";
     const version = url.searchParams.get("version")?.trim() ?? "";
     const platformRaw = url.searchParams.get("platform")?.trim() ?? "";
     const envRaw = url.searchParams.get("env")?.trim() ?? "";
     const target = (url.searchParams.get("target") ?? "bundle").trim().toLowerCase();
 
-    if (!version) {
-      otaApiLogger.warn("download", "version_required", { projectId });
+    if (!updateIdRaw && !version) {
+      otaApiLogger.warn("download", "version_or_update_id_required", { projectId });
       return apiFailure(
-        { code: "VERSION_REQUIRED", message: "Query version is required" },
+        {
+          code: "VERSION_OR_UPDATE_ID_REQUIRED",
+          message: "Query version or updateId is required",
+        },
         meta,
         { status: 400 },
       );
@@ -52,24 +65,74 @@ export const otaDownloadController = {
       );
     }
 
-    const update = await otaUpdateService.findByReleaseSlot({
-      projectId: project.id,
-      env,
-      platform,
-      version,
-    });
-    if (!update || !update.active) {
-      otaApiLogger.warn("download", "ota_not_found", {
-        projectId,
+    let update: OtaUpdate;
+
+    if (updateIdRaw) {
+      if (!OTA_ID_RE.test(updateIdRaw)) {
+        return apiFailure(
+          { code: "INVALID_UPDATE_ID", message: "Invalid OTA update id" },
+          meta,
+          { status: 400 },
+        );
+      }
+      const row = await otaUpdateService.findById(updateIdRaw);
+      if (
+        !row ||
+        row.projectId !== project.id ||
+        row.platform !== platform ||
+        row.env !== env
+      ) {
+        otaApiLogger.warn("download", "ota_not_found", {
+          projectId,
+          updateId: updateIdRaw,
+          platform: platformRaw,
+          env: envRaw,
+        });
+        return apiFailure(
+          { code: "OTA_NOT_FOUND", message: "OTA update not found" },
+          meta,
+          { status: 404 },
+        );
+      }
+      if (version && row.version !== version) {
+        return apiFailure(
+          {
+            code: "VERSION_MISMATCH",
+            message: "version query does not match this updateId",
+          },
+          meta,
+          { status: 400 },
+        );
+      }
+      if (!uploadIsDownloadable(row)) {
+        return apiFailure(
+          { code: "OTA_NOT_FOUND", message: "OTA update not found" },
+          meta,
+          { status: 404 },
+        );
+      }
+      update = row;
+    } else {
+      const row = await otaUpdateService.findByReleaseSlot({
+        projectId: project.id,
+        env,
+        platform,
         version,
-        platform: platformRaw,
-        env: envRaw,
       });
-      return apiFailure(
-        { code: "OTA_NOT_FOUND", message: "OTA update not found" },
-        meta,
-        { status: 404 },
-      );
+      if (!row || !uploadIsDownloadable(row)) {
+        otaApiLogger.warn("download", "ota_not_found", {
+          projectId,
+          version,
+          platform: platformRaw,
+          env: envRaw,
+        });
+        return apiFailure(
+          { code: "OTA_NOT_FOUND", message: "OTA update not found" },
+          meta,
+          { status: 404 },
+        );
+      }
+      update = row;
     }
 
     try {

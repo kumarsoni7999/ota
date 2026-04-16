@@ -59,6 +59,7 @@ function downloadQuery(u: OtaUpdate): string {
     platform: u.platform,
     env: u.env,
     version: u.version,
+    updateId: u.id,
   });
   return q.toString();
 }
