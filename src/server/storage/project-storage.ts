@@ -123,6 +123,12 @@ export function updatesBaseDir(projectKey: string): string {
   return path.join(projectRoot(projectKey), "updates");
 }
 
+/** Temp directory for chunked OTA bundle uploads before assembly. */
+export function otaPendingUploadDirAbs(projectKey: string, uploadId: string): string {
+  assertSafeSegment(uploadId, "uploadId");
+  return path.join(updatesBaseDir(projectKey), ".pending", uploadId);
+}
+
 export function updateEnvDir(
   projectKey: string,
   platform: BuildPlatform,

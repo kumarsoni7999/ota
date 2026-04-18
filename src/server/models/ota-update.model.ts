@@ -31,4 +31,8 @@ export type OtaUpdate = {
   uploadState?: OtaUploadState;
   uploadError?: string;
   downloadCount?: number;
+  /** Chunked bundle upload (pending only). */
+  uploadExpectedBytes?: number;
+  uploadExpectedChunks?: number;
+  uploadReceivedBytes?: number;
 };

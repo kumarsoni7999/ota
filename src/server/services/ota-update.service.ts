@@ -86,7 +86,8 @@ export const otaUpdateService = {
         u.projectId === input.projectId &&
         u.platform === input.platform &&
         u.env === input.env &&
-        u.active !== false,
+        u.active !== false &&
+        (u.uploadState === undefined || u.uploadState === "SUCCESS"),
     );
     if (matching.length === 0) {
       return null;

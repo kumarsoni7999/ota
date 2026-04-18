@@ -10,9 +10,11 @@ export function normalizeOtaBuildNumber(u: OtaUpdate): number {
 
 /**
  * Stable id for "same OTA payload" comparisons.
+ * Uses `createdAt` (not `updatedAt`) so download-count / metadata bumps do not
+ * flip the fingerprint and hide or duplicate updates for clients.
  * Example: `1.0.0_24_DEV_2024-10-01T08:30:00.000Z`
  */
 export function otaUpdateFingerprint(u: OtaUpdate): string {
   const bn = normalizeOtaBuildNumber(u);
-  return `${u.version}_${bn}_${u.env}_${u.updatedAt}`;
+  return `${u.version}_${bn}_${u.env}_${u.createdAt}`;
 }
