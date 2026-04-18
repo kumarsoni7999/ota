@@ -127,10 +127,28 @@ function assetFiles(form: FormData): File[] {
   return vals.filter((v): v is File => v instanceof File && v.size > 0);
 }
 
-function safeAssetFileName(index: number, rawName: string): string {
-  const base = path.basename(rawName || `asset-${index}`);
-  const safe = base.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^\.+/, "");
-  return safe ? `${String(index).padStart(4, "0")}-${safe}` : `asset-${index}`;
+/**
+ * Multipart `filename` must preserve Metro's relative path under `--assets-dest` (e.g.
+ * `assets/src/assets/images/foo@2x.png`) so the RN bundle's `resolveAssetSource` paths match
+ * on-disk files after OTA download. Basename-only names (legacy clients) get a numbered prefix.
+ */
+function safeRelativeAssetPath(index: number, rawName: string): string {
+  const n = rawName.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!n) {
+    return `legacy-asset-${index}`;
+  }
+  if (n.includes("..")) {
+    throw new OtaUploadError(
+      "INVALID_ASSET_NAME",
+      `Invalid asset path "${rawName}"`,
+      400,
+    );
+  }
+  const segments = n.split("/").map((seg) => {
+    const s = seg.replace(/[^a-zA-Z0-9._@-]+/g, "_").replace(/^\.+/, "");
+    return s.length ? s : "_";
+  });
+  return segments.join("/");
 }
 
 async function writeAssets(
@@ -150,7 +168,9 @@ async function writeAssets(
         413,
       );
     }
-    const out = path.join(assetsDir, safeAssetFileName(i, f.name));
+    const rel = safeRelativeAssetPath(i, f.name);
+    const out = path.join(assetsDir, rel);
+    await mkdir(path.dirname(out), { recursive: true });
     await writeFile(out, decoded);
   }
 }
